@@ -18,7 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '20' }
+        with:
+          node-version: '20'
       # Persist the upstream cache between runs so the TTL logic (3 h elements, 24 h SATCAT)
       # decides what to re-fetch; a push never triggers an extra CelesTrak pull if data is fresh.
       - uses: actions/cache@v4
@@ -28,11 +29,14 @@ jobs:
           restore-keys: cosat-upstream-
       - run: node scripts/build-static.js
       - uses: actions/upload-pages-artifact@v3
-        with: { path: public }
+        with:
+          path: public
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    environment: { name: github-pages, url: ${{ steps.deployment.outputs.page_url }} }
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
