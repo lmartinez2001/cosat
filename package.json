@@ -1,0 +1,11 @@
+{
+  "name": "cosat",
+  "version": "0.1.0",
+  "description": "CO—SAT: hyper-personalized satellite astrology. A parody.",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": { "node": ">=18" }
+}

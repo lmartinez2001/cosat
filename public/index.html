@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CO—SAT · Hyper-personalized satellite astrology</title>
+<meta name="description" content="A parody of astrology apps, powered by real-time orbital data on ~13,000 satellites.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='6' fill='white'/><ellipse cx='16' cy='16' rx='14' ry='5' fill='none' stroke='white' stroke-width='1.5' transform='rotate(-25 16 16)'/></svg>">
+</head>
+<body>
+<header class="topbar">
+  <div class="wordmark">CO<span class="dash">—</span>SAT <span class="tag">a parody</span></div>
+  <div class="topbar-live">
+    <span id="clock" class="mono">--:--:-- UTC</span>
+    <span class="dot" id="livedot" title="data status"></span>
+    <span id="datastate" class="mono dim">loading catalog…</span>
+  </div>
+</header>
+
+<main>
+  <section class="hero" id="hero">
+    <canvas id="globe" aria-label="Live globe with satellite positions"></canvas>
+    <div class="hero-copy">
+      <p class="eyebrow">Hyper-personalized astrology, finally based on something we actually put up there</p>
+      <h1>Astrology was invented<br>before we launched<br><span id="hero-count" class="serif-italic">thirteen thousand</span> things<br>into the sky.</h1>
+      <p class="lede">Planets are far and slow. Satellites are close, fast, and numerous. Which do you think is really running your life?</p>
+    </div>
+    <p class="hero-live mono dim" id="hero-live"></p>
+    <form id="birth-form" class="birth-form" autocomplete="off">
+      <div class="field"><label for="name">Name <span class="dim">(optional)</span></label><input id="name" name="name" type="text" placeholder="you" maxlength="40"></div>
+      <div class="row">
+        <div class="field"><label for="bdate">Born on</label><input id="bdate" name="bdate" type="date" required min="1957-10-04" max="2026-12-31"></div>
+        <div class="field"><label for="btime">At</label><input id="btime" name="btime" type="time" value="12:00"></div>
+      </div>
+      <div class="field">
+        <label>Where you are now <span class="dim">(your sky is computed from here)</span></label>
+        <div class="row tight">
+          <input id="lat" name="lat" type="number" step="0.0001" min="-90" max="90" placeholder="lat" required>
+          <input id="lon" name="lon" type="number" step="0.0001" min="-180" max="180" placeholder="lon" required>
+          <select id="preset" aria-label="Pick a city"><option value="">city…</option></select>
+          <button type="button" id="geo" class="ghost" title="Use device location">◎ locate</button>
+        </div>
+      </div>
+      <button type="submit" class="primary" id="submit">Read my sky</button>
+      <p class="fine mono" id="form-note">Elements loading…</p>
+    </form>
+  </section>
+
+  <section class="report" id="report" hidden>
+    <div class="report-head">
+      <p class="eyebrow" id="rep-name">Your chart</p>
+      <div class="bigthree">
+        <div><span class="lbl">Sun</span><b id="b3-sun">—</b><small id="b3-sun-sub" class="mono dim"></small></div>
+        <div><span class="lbl">Moon</span><b id="b3-moon">—</b><small id="b3-moon-sub" class="mono dim"></small></div>
+        <div><span class="lbl">Rising</span><b id="b3-rising">—</b><small id="b3-rising-sub" class="mono dim"></small></div>
+      </div>
+      <p class="fine">Live. Your rising sign changes roughly every minute. This is normal. You are fine.</p>
+    </div>
+
+    <div class="wheel-wrap">
+      <canvas id="wheel" aria-label="Your sky as a natal wheel"></canvas>
+      <div class="wheel-legend mono dim" id="wheel-legend"></div>
+    </div>
+
+    <div class="glance">
+      <h2>Your day at a glance</h2>
+      <p id="glance" class="serif"></p>
+      <div class="elements" id="elements"></div>
+    </div>
+
+    <div class="dodont">
+      <div><h3>Do</h3><ul id="do"></ul></div>
+      <div><h3>Don't</h3><ul id="dont"></ul></div>
+    </div>
+
+    <div class="cats" id="cats"></div>
+    <p class="shadow mono dim" id="shadow"></p>
+
+    <div class="natal" id="natal">
+      <h2>The day you were born</h2>
+      <div id="natal-body"></div>
+    </div>
+
+    <div class="transits">
+      <div><h3>Rising over you</h3><ul id="rising" class="mono"></ul></div>
+      <div><h3>Setting</h3><ul id="setting" class="mono"></ul></div>
+    </div>
+
+    <div class="iss">
+      <h3>Reality check</h3>
+      <p class="fine">We propagate the ISS from its orbital elements, then compare against independent live telemetry from wheretheiss.at. If the two agree, so does the universe.</p>
+      <div id="iss-body" class="mono"></div>
+    </div>
+
+    <div class="method">
+      <h3>Data & methodology</h3>
+      <div id="method-body" class="mono fine"></div>
+      <p class="fine">CO—SAT is a parody. Satellites do not influence your life, except the ones that do (GPS, weather, your internet). Orbital elements © CelesTrak, used under their data policy: each dataset is fetched at most once every 3 hours, from a single caching server, with backoff on errors. All positions are computed on your device with SGP4 (satellite.js). Nothing about you leaves your browser.</p>
+    </div>
+  </section>
+</main>
+<script src="vendor/satellite.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
