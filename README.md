@@ -21,24 +21,33 @@ Give it your birth date and where you are, and it produces a live chart:
 ## Shorts
 
 `feed.html` is a vertical, snap-scrolling **video** feed in the style of Shorts / Reels: full-screen
-on phones, a phone-shaped column with ↑↓ keys on desktop, muted autoplay, tap for sound. Every
-card is a real, already-published video, **embedded or streamed from where it lives, never
-downloaded or copied**:
+on phones, a phone-shaped column with ↑↓ keys on desktop, muted autoplay, tap for sound. Every card
+is a real, already-published clip **shorter than 30 seconds**, embedded or streamed from where it
+lives, never downloaded or copied:
 
-- **YouTube**: a pool of real search results about UFOs, UAP, and satellite conspiracies
-  (Black Knight, Project Blue Beam, Starlink sightings, Pentagon footage, Roswell, Phoenix
-  Lights…), gathered server-side every 12 h by the GitHub Action (browsers cannot search YouTube
-  without a key) and played through the official embedded player from youtube-nocookie.com.
-  Videos whose uploader disabled embedding show a notice and a link instead.
-- **Wikimedia Commons**: video files such as the US government UAP releases (FLIR1, Gimbal,
-  Go Fast, the 2022–23 DoD reports) and hearings, streamed from upload.wikimedia.org with a
-  Safari-friendly MP4 transcode where available.
-- **Internet Archive**: UFO films, documentaries and news reels, streamed as H.264 from
-  archive.org.
+- **YouTube**: clips about UFOs, UAP and satellite conspiracies (Black Knight, Project Blue Beam,
+  Starlink sightings, Pentagon footage, Roswell, Phoenix Lights…), played through the official
+  embedded player from youtube.com. Videos whose uploader disabled embedding are skipped.
+- **Wikimedia Commons**: short video files, including the official US government UAP releases,
+  streamed from upload.wikimedia.org with a Safari-friendly MP4 transcode where available.
 
-Each card links to its source and carries a mini radar plus a live line about what is really
-above your head at that moment, computed from the same orbital elements as the main page. Only
-the current card and its neighbours hold a player; the rest are torn down as you scroll.
+The Internet Archive is no longer a source: its UFO holdings are feature-length films, so nothing
+there fits the format.
+
+**How the 30-second rule is enforced**, in three places:
+
+1. `lib/videos.js` searches YouTube server-side (browsers cannot, without an API key) and resolves
+   an **exact** duration for every candidate: from the `0:24`-style label when the search page shows
+   one, otherwise by reading `lengthSeconds` from the video's own watch page. Results are kept in a
+   duration cache that survives across runs, so an id is never checked twice and the pool grows each
+   time. Only clips under 30 s are published to `data/videos.json`.
+2. The Commons query keeps only files whose API-reported duration is under 30 s.
+3. In the browser, the player itself reports the true duration; anything that comes back at 30 s or
+   over is dropped from the feed and replaced, as is anything that fails to play.
+
+Each card links to its source and carries a mini radar plus a live line about what is really above
+your head at that moment, computed from the same orbital elements as the main page. Only the current
+card and its neighbours hold a player; the rest are torn down as you scroll.
 
 ## Run
 

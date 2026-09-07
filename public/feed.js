@@ -29,12 +29,16 @@ const setOrClimb = i => { const c = cur(i); return c.rate < -0.002 ? `sets in ${
 const believes = i => (meta(i).c * 7919) % 4200 + 37, doubts = i => (meta(i).c * 104729) % 900 + 12;
 
 // ---------------- real video sources ----------------
-// Every card is a real video, fetched live from sources a static site can reach:
-//  * YouTube: a pool of search results gathered server-side (the GitHub Action or the
-//    local server), embedded with the official IFrame player
-//  * Wikimedia Commons: video files (Pentagon UAP releases, hearings, footage), played directly
-//  * Internet Archive: UFO films, documentaries and news reels (H.264 derivatives), played directly
+// Every card is a real video SHORTER THAN 30 SECONDS, played where it lives:
+//  * YouTube: a server-gathered pool of clips whose duration was verified exactly
+//    (see lib/videos.js), embedded with the official IFrame player
+//  * Wikimedia Commons: video files (the official US government UAP releases, and
+//    other short footage), streamed directly; the API gives us their duration
+// The Internet Archive is not used here: its UFO holdings are feature-length films.
+// Anything that turns out to be 30 s or longer is dropped by the player check below.
 // CO—SAT adds only the live line about what is really above you.
+const MAX_SECONDS = 30;
+const fmtDur = s => s < 60 ? Math.round(s) + 's' : Math.floor(s / 60) + ':' + String(Math.round(s % 60)).padStart(2, '0');
 const enc = encodeURIComponent;
 async function getJSON(url) { try { const r = await fetch(url, { headers: { Accept: 'application/json' } }); if (!r.ok) return null; return await r.json(); } catch { return null; } }
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -45,54 +49,43 @@ const yt = { items: [], loaded: false, all: [] };
 async function loadYouTube() {
   if (yt.loaded || Date.now() < (yt.retryAt || 0)) return; const d = await getJSON(sky.STATIC ? 'data/videos.json' : 'api/videos');
   if (!d) { yt.retryAt = Date.now() + 20000; return; } // local server may still be building the pool; try again later
-  yt.all = (d.videos || []).filter(v => v.id && v.title); yt.items = shuffle(yt.all.slice()); yt.loaded = true;
+  yt.all = (d.videos || []).filter(v => v.id && v.title && v.seconds > 0 && v.seconds < MAX_SECONDS);
+  yt.items = shuffle(yt.all.slice()); yt.loaded = true;
 }
 function ytCard() {
   if (!yt.items.length) { if (!yt.all.length) return null; yt.items = shuffle(yt.all.slice()); }
   const v = yt.items.shift();
-  return { source: 'youtube', kind: 'youtube', id: 'yt:' + v.id, videoId: v.id, kicker: `YouTube · ${v.channel || 'Shorts'}${v.views ? ' · ' + v.views : ''}${v.length && v.length !== 'short' ? ' · ' + v.length : ''}`, title: v.title, body: `${v.published ? 'Published ' + v.published + '. ' : ''}Surfaced by a search for “${v.query}”. Not an endorsement; the sky below is.`, url: `https://www.youtube.com/watch?v=${v.id}`, credit: 'Plays from youtube.com in the official embedded player' };
+  if (!(v.seconds > 0)) v.seconds = 0; // shared deep link: the player reports the real duration
+  return { source: 'youtube', kind: 'youtube', id: 'yt:' + v.id, videoId: v.id, seconds: v.seconds, kicker: `YouTube · ${v.seconds ? fmtDur(v.seconds) : 'checking…'}${v.channel ? ' · ' + v.channel : ''}${v.views ? ' · ' + v.views : ''}`, title: v.title, body: `${v.published ? 'Published ' + v.published + '. ' : ''}Surfaced by a search for \u201c${v.query}\u201d. Not an endorsement; the sky below is.`, url: `https://www.youtube.com/watch?v=${v.id}`, credit: 'Plays from youtube.com in the official embedded player' };
 }
-const commons = { queries: ['UAP', 'UFO', 'flying saucer', 'alien', 'Starlink', 'satellite launch', 'space debris', 'ISS'], qi: 0, offsets: {}, items: [], seen: new Set() };
+const commons = { queries: ['UAP', 'UFO', 'flying saucer', 'unidentified aerial', 'Starlink satellites', 'satellite pass night sky', 'space debris reentry', 'ISS flyover', 'meteor fireball', 'rocket launch night'], qi: 0, offsets: {}, items: [], seen: new Set() };
 async function commonsCard() {
   for (let tries = 0; tries < 3 && !commons.items.length; tries++) {
     const q = commons.queries[commons.qi % commons.queries.length]; commons.qi++; const off = commons.offsets[q] || 0;
-    const d = await getJSON(`https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${enc(q + ' filemime:video')}&gsrnamespace=6&gsrlimit=25&gsroffset=${off}&prop=videoinfo&viprop=url|derivatives|mime|size|extmetadata&viurlwidth=900&viextmetadatafilter=ImageDescription|LicenseShortName|Artist&format=json&origin=*`);
+    const d = await getJSON(`https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${enc(q + ' filemime:video')}&gsrnamespace=6&gsrlimit=25&gsroffset=${off}&prop=videoinfo&viprop=url|derivatives|mime|size|dimensions|extmetadata&viurlwidth=900&viextmetadatafilter=ImageDescription|LicenseShortName|Artist&format=json&origin=*`);
     commons.offsets[q] = off + 25; const pages = Object.values(d?.query?.pages || {});
     if (!pages.length) commons.offsets[q] = 0;
-    commons.items.push(...shuffle(pages.filter(p => p.videoinfo && !commons.seen.has(p.title))));
+    // keep only clips we know are under the limit; Commons reports exact durations
+    commons.items.push(...shuffle(pages.filter(p => p.videoinfo && !commons.seen.has(p.title) && p.videoinfo[0].duration > 0 && p.videoinfo[0].duration < MAX_SECONDS)));
   }
   const p = commons.items.shift(); if (!p) return null; commons.seen.add(p.title);
   const vi = p.videoinfo[0]; const der = vi.derivatives || [];
   const pickKey = re => der.find(x => re.test(x.transcodekey || '')); const webm = pickKey(/480p.*webm/) || pickKey(/360p.*webm/) || pickKey(/240p.*webm/); const mp4 = pickKey(/mpeg4|mp4|mov/);
   const sources = []; if (mp4) sources.push({ src: mp4.src, type: 'video/mp4' }); if (webm) sources.push({ src: webm.src, type: 'video/webm' }); if (!sources.length) sources.push({ src: vi.url, type: vi.mime });
   const md = vi.extmetadata || {}; const title = p.title.replace(/^File:/, '').replace(/\.\w+$/, '');
-  return { source: 'commons', kind: 'video', id: 'commons:' + p.pageid, sources, poster: vi.thumburl, kicker: `Wikimedia Commons · ${strip(md.LicenseShortName?.value || 'free license')}${md.Artist?.value ? ' · ' + trunc(strip(md.Artist.value), 40) : ''}`, title, body: trunc(strip(md.ImageDescription?.value) || 'A video file from Wikimedia Commons.', 260), url: vi.descriptionurl || `https://commons.wikimedia.org/wiki/${enc(p.title)}`, credit: 'Wikimedia Commons · plays from upload.wikimedia.org' };
+  let artist = strip(md.Artist?.value || '');
+  if (/^unknown( author)?$/i.test(artist.replace(/(unknown author\s*)+/i, 'unknown author').trim())) artist = '';
+  artist = artist.replace(/\b(\w[\w'-]*)(\s+\1\b)+/gi, '$1'); // collapse "NAME NAME"
+  if (/unknown author/i.test(artist)) artist = '';
+  return { source: 'commons', kind: 'video', id: 'commons:' + p.pageid, sources, poster: vi.thumburl, seconds: vi.duration, kicker: `Wikimedia Commons · ${fmtDur(vi.duration)} · ${strip(md.LicenseShortName?.value || 'free license')}${artist ? ' · ' + trunc(artist, 32) : ''}`, title, body: trunc(strip(md.ImageDescription?.value) || 'A video file from Wikimedia Commons.', 260), url: vi.descriptionurl || `https://commons.wikimedia.org/wiki/${enc(p.title)}`, credit: 'Wikimedia Commons · plays from upload.wikimedia.org' };
 }
-const archive = { page: 1, items: [], seen: new Set() };
-async function archiveCard() {
-  for (let tries = 0; tries < 4; tries++) {
-    if (!archive.items.length) {
-      const q = 'mediatype:movies AND (title:(UFO OR UFOs OR "flying saucer" OR "flying saucers" OR UAP OR "unidentified flying" OR "Project Blue Book") OR subject:(UFO OR UFOs OR ufology OR "flying saucers" OR UAP))';
-      const d = await getJSON(`https://archive.org/advancedsearch.php?q=${enc(q)}&fl[]=identifier&fl[]=title&fl[]=description&fl[]=date&fl[]=creator&fl[]=downloads&rows=40&page=${archive.page}&output=json&sort[]=downloads+desc`);
-      const docs = d?.response?.docs || []; archive.page = docs.length ? archive.page + 1 : 1;
-      archive.items = shuffle(docs.filter(x => !archive.seen.has(x.identifier))); if (!archive.items.length) return null;
-    }
-    const it = archive.items.shift(); archive.seen.add(it.identifier);
-    const m = await getJSON(`https://archive.org/metadata/${it.identifier}`); const files = (m?.files || []).filter(f => /\.mp4$/i.test(f.name) && +f.size > 0);
-    if (!files.length) continue;
-    files.sort((a, b) => (/512kb/i.test(b.name) - /512kb/i.test(a.name)) || (+a.size - +b.size)); const f = files[0];
-    const desc = strip(Array.isArray(it.description) ? it.description.join(' ') : it.description); const year = (it.date || '').slice(0, 4);
-    return { source: 'archive', kind: 'video', id: 'archive:' + it.identifier, sources: [{ src: `https://archive.org/download/${it.identifier}/${enc(f.name)}`, type: 'video/mp4' }], poster: `https://archive.org/services/img/${it.identifier}`, kicker: `Internet Archive · film${year ? ' · ' + year : ''}${it.creator ? ' · ' + trunc(strip(Array.isArray(it.creator) ? it.creator[0] : it.creator), 32) : ''}`, title: strip(it.title), body: trunc(desc || `A film from the Internet Archive with ${(it.downloads || 0).toLocaleString()} downloads.`, 260), url: `https://archive.org/details/${it.identifier}`, credit: `Internet Archive · ${(it.downloads || 0).toLocaleString()} downloads · ${(+f.size / 1e6).toFixed(0)} MB` };
-  }
-  return null;
-}
-const PATTERN = ['youtube', 'youtube', 'commons', 'youtube', 'archive', 'youtube', 'commons', 'youtube', 'archive'];
+const PATTERN = ['youtube', 'youtube', 'youtube', 'commons', 'youtube', 'youtube', 'commons'];
 let patternPos = Math.floor(Math.random() * PATTERN.length); const usedIds = new Set();
 async function nextContent() {
   await loadYouTube();
   for (let k = 0; k < PATTERN.length; k++) {
     const src = PATTERN[(patternPos + k) % PATTERN.length];
-    const c = await (src === 'youtube' ? ytCard() : src === 'commons' ? commonsCard() : archiveCard());
+    const c = await (src === 'youtube' ? ytCard() : commonsCard());
     if (c && !usedIds.has(c.id)) { usedIds.add(c.id); patternPos = (patternPos + k + 1) % PATTERN.length; return c; }
   }
   return null;
@@ -105,16 +98,32 @@ function liveLine(i) { const n = above().length; if (i < 0) return `<b>${n}</b> 
 let soundOn = false;
 let ytReady = null;
 function loadYT() { if (ytReady) return ytReady; ytReady = new Promise(res => { if (window.YT && window.YT.Player) return res(); window.onYouTubeIframeAPIReady = () => res(); const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s); }); return ytReady; }
-function mediaFailed(card, why) { const m = card.el.querySelector('.media'); m.innerHTML = `<div class="unavailable"><div class="mono">${esc(why)}</div><div>This one will not play here. Open the source, or keep scrolling.</div></div>`; card.failed = true; }
+function mediaFailed(card, why) { const m = card.el.querySelector('.media'); if (m) m.innerHTML = `<div class="unavailable"><div class="mono">${esc(why)}</div><div>This one will not play here. Open the source, or keep scrolling.</div></div>`; card.failed = true; dropCard(card); }
+// Last line of defence on the 30-second rule: whatever the pool claimed, the player
+// knows the real duration. Anything at or over the limit is removed from the feed.
+function enforceLimit(card, seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return true;
+  card.content.seconds = seconds;
+  const k = card.el.querySelector('.kicker'); if (k) k.textContent = k.textContent.replace(/^(YouTube|Wikimedia Commons) · [^·]*/, (m, p) => `${p} · ${fmtDur(seconds)} `);
+  if (seconds < MAX_SECONDS) return true;
+  dropCard(card); return false;
+}
+// Remove a card that must not be shown. If it is the one on screen, move on first.
+function dropCard(card) {
+  if (card.dropped) return; card.dropped = true;
+  const finish = () => { io.unobserve(card.el); detachMedia(card); card.el.remove(); const i = cards.indexOf(card); if (i >= 0) cards.splice(i, 1); fillAhead(3); };
+  if (card.visible) { step(1); setTimeout(finish, 650); } else finish();
+}
 async function attachMedia(card) {
   if (card.attached) return; card.attached = true; const c = card.content; const m = card.el.querySelector('.media');
   if (c.kind === 'youtube') {
     await loadYT(); const holder = document.createElement('div'); m.appendChild(holder);
     card.player = new YT.Player(holder, { videoId: c.videoId, host: 'https://www.youtube-nocookie.com', playerVars: { autoplay: 1, mute: 1, playsinline: 1, controls: 1, rel: 0, loop: 1, playlist: c.videoId, modestbranding: 1, iv_load_policy: 3, origin: location.origin },
-      events: { onReady: e => { if (card.visible) { e.target.mute(); e.target.playVideo(); if (soundOn) e.target.unMute(); } else e.target.pauseVideo(); }, onError: e => mediaFailed(card, 'YouTube error ' + e.data + (e.data === 101 || e.data === 150 ? ' · embedding disabled by the uploader' : '')) } });
+      events: { onReady: e => { if (!enforceLimit(card, e.target.getDuration())) return; if (card.visible) { e.target.mute(); e.target.playVideo(); if (soundOn) e.target.unMute(); } else e.target.pauseVideo(); }, onStateChange: e => { if (e.data === YT.PlayerState.PLAYING) enforceLimit(card, e.target.getDuration()); }, onError: e => mediaFailed(card, 'YouTube error ' + e.data + (e.data === 101 || e.data === 150 ? ' · embedding disabled by the uploader' : '')) } });
   } else {
     const v = document.createElement('video'); v.playsInline = true; v.muted = !soundOn; v.loop = true; v.preload = 'metadata'; v.controls = false; if (c.poster) v.poster = c.poster;
     for (const s of c.sources) { const src = document.createElement('source'); src.src = s.src; src.type = s.type; v.appendChild(src); }
+    v.addEventListener('loadedmetadata', () => enforceLimit(card, v.duration));
     v.addEventListener('error', () => { if (v.networkState === 3 || v.error) mediaFailed(card, 'video failed to load'); }, true);
     v.addEventListener('click', () => { if (v.paused) v.play(); else v.pause(); });
     m.appendChild(v); card.video = v; if (card.visible) v.play().catch(() => { });
@@ -131,7 +140,7 @@ function applySound() { document.querySelectorAll('.rail .sound').forEach(b => {
 function addCard(c) {
   const n = ++cardSeq; const el = document.createElement('section'); el.className = 'short'; el.dataset.source = c.source;
   const sat = liveSat(); const bel = (n * 7919 + (sat >= 0 ? meta(sat).c : 0)) % 4200 + 37, dou = (n * 104729) % 900 + 12;
-  el.innerHTML = `<div class="media"></div><div class="shade"></div><canvas class="mini" aria-hidden="true"></canvas>
+  el.innerHTML = `<div class="media"></div><canvas class="mini" aria-hidden="true"></canvas>
     <div class="top"><span><span class="brand">CO—SAT Shorts · </span>#${n}</span><span class="stamp">Real videos</span></div>
     <button class="tap-sound" ${soundOn ? 'hidden' : ''}>🔇 tap for sound</button>
     <div class="text"><div class="kicker">${esc(c.kicker)}</div><h1 class="title">${esc(c.title)}</h1><p class="body">${esc(c.body)}</p><p class="credit">${esc(c.credit)}</p><div class="reality"><span class="lbl">Meanwhile, above you</span><span class="rtxt">${liveLine(sat)}</span></div></div>
@@ -252,9 +261,9 @@ window.addEventListener('resize', () => cards.forEach(c => c.resize()));
   const obs = guessObserver(); let first = true;
   sky = await loadSky({ observer: { lat: obs.lat, lon: obs.lon }, onProgress: m => { $('#load-note').textContent = m; }, onTick: () => {
     if (first) { first = false; (async () => {
-      $('#load-note').textContent = 'gathering videos from YouTube, Wikimedia Commons and the Internet Archive…';
+      $('#load-note').textContent = 'finding clips under 30 seconds on YouTube and Wikimedia Commons…';
       // deep link: #yt:VIDEOID opens that video first
-      const m = decodeURIComponent(location.hash.slice(1)); if (m.startsWith('yt:')) { await loadYouTube(); yt.items.unshift({ id: m.slice(3), title: 'Shared video', channel: 'YouTube', query: 'a shared link' }); }
+      const m = decodeURIComponent(location.hash.slice(1)); if (m.startsWith('yt:')) { await loadYouTube(); yt.items.unshift({ id: m.slice(3), title: 'Shared clip', channel: '', seconds: 0, query: 'a shared link' }); }
       const c0 = await nextContent(); if (c0) addCard(c0); $('#loading').remove(); fillAhead(4);
     })(); }
     for (const c of cards) if (c.visible) c.tick();
