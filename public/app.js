@@ -1,7 +1,9 @@
 import { Globe } from './globe.js';
 import { Wheel, sep } from './wheel.js';
 import * as astro from './astro.js';
+const D2R = Math.PI / 180;
 import { buildReport, natalCopy, CATEGORIES, prettyName, dirName } from './report.js';
+import { initFeatures, buildRitual, prefillCompat, applyCompatLink } from './features.js';
 
 const $ = s => document.querySelector(s);
 const DOMAINS = ['social', 'routine', 'money', 'spirit', 'work', 'mind', 'love', 'self', 'change', 'shadow'];
@@ -39,6 +41,9 @@ $('#geo').onclick = () => { if (!navigator.geolocation) return; $('#geo').textCo
 })();
 globe.setObserver(S.observer.lat, S.observer.lon);
 
+const OWNER_LABEL = { US: 'the United States', CIS: 'Russia', PRC: 'China', FR: 'France', ESA: 'the European Space Agency', JPN: 'Japan', IND: 'India', UK: 'the United Kingdom', GER: 'Germany', CA: 'Canada', IT: 'Italy', SES: 'SES', ITSO: 'Intelsat', EUME: 'EUMETSAT', EUTE: 'Eutelsat', IRID: 'Iridium', GLOB: 'Globalstar', O3B: 'O3b', SKOR: 'South Korea', KOR: 'South Korea', ORB: 'Orbcomm', LUXE: 'Luxembourg', NOR: 'Norway', SPN: 'Spain', TBD: 'an undisclosed party' };
+const ownerShort = code => OWNER_LABEL[code] || code || 'an unknown operator';
+
 $('#birth-form').onsubmit = async e => {
   e.preventDefault();
   const f = { name: $('#name').value.trim(), bdate: $('#bdate').value, btime: $('#btime').value || '12:00', lat: +$('#lat').value, lon: +$('#lon').value };
@@ -49,7 +54,7 @@ $('#birth-form').onsubmit = async e => {
   $('#submit').disabled = true; $('#submit').textContent = 'Reading…';
   try { S.natal = await fetchNatal(f.bdate); } catch { S.natal = null; }
   S.lastReportBuild = 0; S.hi.rising = null;
-  const show = () => { if (!S.cur) return setTimeout(show, 200); updateLive(true); $('#report').hidden = false; if (!S.reportShown) { S.reportShown = true; pollIss(true); } S.reportShown = true; $('#submit').disabled = false; $('#submit').textContent = 'Read my sky again'; setTimeout(() => $('#report').scrollIntoView({ behavior: 'smooth' }), 50); };
+  const show = () => { if (!S.cur) return setTimeout(show, 200); updateLive(true); $('#report').hidden = false; prefillCompat(S.birth, S.name); buildRitual(S.birth, S.natal); if (!S.reportShown) { S.reportShown = true; pollIss(true); } S.reportShown = true; $('#submit').disabled = false; $('#submit').textContent = 'Read my sky again'; setTimeout(() => $('#report').scrollIntoView({ behavior: 'smooth' }), 50); };
   show();
 };
 
@@ -69,6 +74,8 @@ async function loadCatalog(attempt = 0) {
   $('#hero-count').textContent = words(S.N);
   $('#wheel-legend').innerHTML = CATEGORIES.map(c => `<span style="--c:${DOMAIN_COLORS[c.key]}">${c.ruler}</span>`).join('') + `<span style="--c:${DOMAIN_COLORS.shadow}">military</span>`;
   startWorker();
+  initFeatures({ S, prettyName, dirName, ownerShort, fetchNatal, STATIC });
+  if (applyCompatLink()) $('#compat').scrollIntoView({ behavior: 'smooth' });
   $('#form-note').textContent = `${S.N.toLocaleString()} objects loaded. Positions are computed on this device every second; nothing is polled.`;
   $('#submit').disabled = false;
   refreshStatus();
@@ -105,9 +112,14 @@ function lerpFrames(now) {
 let loopErrors = 0;
 function loop() {
   try {
-    const now = Date.now(); lerpFrames(now);
-    globe.render(now);
-    if (S.reportShown && isVisible($('#wheel'))) wheel.render(now);
+    const now = Date.now();
+    const globeOn = isVisible($('#globe')), wheelOn = S.reportShown && isVisible($('#wheel'));
+    // Interpolating 13k objects is only worth doing if something is actually drawing them.
+    if (globeOn || wheelOn) {
+      lerpFrames(now);
+      if (globeOn) globe.render(now);
+      if (wheelOn) wheel.render(now);
+    }
   } catch (e) { if (loopErrors++ < 3) console.error('render error', e); }
   requestAnimationFrame(loop);
 }
@@ -136,7 +148,9 @@ function pickRising() {
 function onTick() {
   if (!S.fb) return; if (!S.fa) S.cur.set(S.fb);
   const now = Date.now(); const bodies = skyBodies(now);
-  S.hi.sun = nearest(bodies.sun.az, bodies.sun.el, S.hi.sun, 2); S.hi.moon = nearest(bodies.moon.az, bodies.moon.el, S.hi.moon, 2); S.hi.rising = pickRising(); S.hi.iss = S.issIdx >= 0 ? S.issIdx : null;
+  analyse(bodies);
+  globe.refreshScale();
+  S.hi.sun = scan.sunIdx; S.hi.moon = scan.moonIdx; S.hi.rising = scan.risingIdx; S.hi.iss = S.issIdx >= 0 ? S.issIdx : null;
   S.hi.names = { sun: 'SUN · ' + prettyName(S.names[S.hi.sun] || ''), moon: 'MOON · ' + prettyName(S.names[S.hi.moon] || ''), rising: 'RISING · ' + prettyName(S.names[S.hi.rising] || ''), iss: 'ISS' };
   globe.setHighlights(S.hi);
   updateTracks(now);
@@ -185,11 +199,7 @@ function computeConjunctions() {
   const ORB = { social: 0.15, money: 0, routine: 1, self: 0.5 };
   byDom.forEach((list, di) => { const key = DOMAINS[di]; const orb = ORB[key] ?? 1; if (!orb) return; for (let a = 0; a < list.length && !S.conj[key]; a++) for (let b = a + 1; b < list.length; b++) { const oa = list[a] * 7, ob = list[b] * 7; if (Math.abs(cur[oa + 4] - cur[ob + 4]) > orb) continue; if (sep(cur[oa + 3], cur[oa + 4], cur[ob + 3], cur[ob + 4]) < orb) { S.conj[key] = true; break; } } });
 }
-function elements() {
-  const cur = S.cur; const c = { fire: 0, air: 0, earth: 0, water: 0 }; let n = 0;
-  for (let i = 0; i < S.N; i++) { const o = i * 7; if (cur[o + 4] <= 0) continue; n++; const alt = cur[o + 2], e = S.ecc[i]; if (e > 0.25) c.water++; else if (alt < 2000) c.fire++; else if (alt > 35000 && alt < 36500) c.earth++; else c.air++; }
-  return { counts: c, n };
-}
+function elements() { return { counts: { fire: scan.fire, air: scan.air, earth: scan.earth, water: scan.water }, n: scan.above }; }
 const fmtT = ms => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 function updateLive(force, bodies) {
@@ -221,7 +231,47 @@ function updateLive(force, bodies) {
   }
   renderMeters(cs); renderElements(el); renderTransits();
 }
-function countAbove() { let n = 0; const cur = S.cur; for (let i = 0; i < S.N; i++) if (cur[i * 7 + 4] > 0) n++; return n; }
+// A single pass over the catalog per tick, feeding everything that used to walk the
+// array separately: horizon count, orbit-class histogram, the satellites nearest the
+// Sun and Moon, the rising pick, and the rise/set lists. One scan instead of six.
+const scan = { above: 0, fire: 0, air: 0, earth: 0, water: 0, sunIdx: -1, sunSep: 1e9, moonIdx: -1, moonSep: 1e9, risingIdx: -1, risingEl: 99, rising: [], setting: [], at: 0 };
+function analyse(bodies) {
+  const cur = S.cur, N = S.N, ecc = S.ecc;
+  const sunAz = bodies.sun.az * D2R, sunEl = bodies.sun.el * D2R, moonAz = bodies.moon.az * D2R, moonEl = bodies.moon.el * D2R;
+  const sinSunEl = Math.sin(sunEl), cosSunEl = Math.cos(sunEl), sinMoonEl = Math.sin(moonEl), cosMoonEl = Math.cos(moonEl);
+  let above = 0, fire = 0, air = 0, earth = 0, water = 0;
+  let sunIdx = -1, sunBest = -2, moonIdx = -1, moonBest = -2, risingIdx = -1, risingEl = 99;
+  const rising = [], setting = [];
+  const keepSun = S.hi.sun, keepMoon = S.hi.moon, keepRise = S.hi.rising;
+  for (let i = 0, o = 0; i < N; i++, o += 7) {
+    const alt = cur[o + 2]; if (alt < 0) continue;
+    const el = cur[o + 4], rate = cur[o + 6];
+    if (el > 0) {
+      above++;
+      const e = ecc[i];
+      if (e > 0.25) water++; else if (alt < 2000) fire++; else if (alt > 35000 && alt < 36500) earth++; else air++;
+      if (el < 12 && rate > 0.005 && el < risingEl) { risingEl = el; risingIdx = i; }
+      if (el < 6 && rate < -0.002) setting.push(i, (el / -rate) | 0);
+    } else if (el > -6 && rate > 0.002) rising.push(i, (-el / rate) | 0);
+    // cosine of the angular separation from each body; bigger is closer
+    const az = cur[o + 3] * D2R, elR = el * D2R, sinEl = Math.sin(elR), cosEl = Math.cos(elR);
+    const cs = sinEl * sinSunEl + cosEl * cosSunEl * Math.cos(az - sunAz);
+    if (cs > sunBest) { sunBest = cs; sunIdx = i; }
+    const cm = sinEl * sinMoonEl + cosEl * cosMoonEl * Math.cos(az - moonAz);
+    if (cm > moonBest) { moonBest = cm; moonIdx = i; }
+  }
+  // hysteresis: keep the current pick unless another is clearly closer, so labels stop flickering
+  const stick = (keep, idx, best, cosBody) => { if (keep == null || keep < 0 || S.cur[keep * 7 + 2] < 0) return idx; return cosBody(keep) > best - 6e-4 ? keep : idx; };
+  const cosTo = (bAz, bEl) => k => { const o = k * 7, elR = S.cur[o + 4] * D2R; return Math.sin(elR) * Math.sin(bEl * D2R) + Math.cos(elR) * Math.cos(bEl * D2R) * Math.cos(S.cur[o + 3] * D2R - bAz * D2R); };
+  scan.above = above; scan.fire = fire; scan.air = air; scan.earth = earth; scan.water = water;
+  scan.sunIdx = stick(keepSun, sunIdx, sunBest, cosTo(bodies.sun.az, bodies.sun.el));
+  scan.moonIdx = stick(keepMoon, moonIdx, moonBest, cosTo(bodies.moon.az, bodies.moon.el));
+  const keptRise = keepRise != null && keepRise >= 0 && cur[keepRise * 7 + 4] >= 0 && cur[keepRise * 7 + 4] < 12 && cur[keepRise * 7 + 6] > 0;
+  scan.risingIdx = keptRise ? keepRise : risingIdx;
+  scan.rising = rising; scan.setting = setting; scan.at = Date.now();
+  return scan;
+}
+function countAbove() { return scan.above; }
 function owner(i) { if (i < 0) return ''; const o = S.catalog.objects[i]; const m = { US: 'US', CIS: 'RU', PRC: 'CN', FR: 'FR', ESA: 'ESA', JPN: 'JP', IND: 'IN', UK: 'UK', GER: 'DE', CA: 'CA', IT: 'IT' }; return (o.o ? (m[o.o] || o.o) : '??') + (o.l ? ' · launched ' + o.l.slice(0, 4) : ''); }
 function setB3(k, s, sub) { const b = $('#b3-' + k); if (b.textContent !== s.name) { b.textContent = s.name; b.classList.remove('changed'); void b.offsetWidth; b.classList.add('changed'); } $('#b3-' + k + '-sub').textContent = sub; }
 
@@ -246,8 +296,9 @@ function renderElements(el) {
   for (const [k] of map) { const pct = Math.round(100 * el.counts[k] / n); const d = box.querySelector(`[data-el="${k}"]`); d.querySelector('.el-val').textContent = pct + '%'; d.querySelector('.el-bar i').style.width = pct + '%'; }
 }
 function renderTransits() {
-  const cur = S.cur; const rising = [], setting = [];
-  for (let i = 0; i < S.N; i++) { const o = i * 7; const el = cur[o + 4], rate = cur[o + 6]; if (cur[o + 2] < 0) continue; if (el < 0 && el > -6 && rate > 0.002) rising.push([i, -el / rate]); else if (el >= 0 && el < 6 && rate < -0.002) setting.push([i, el / -rate]); }
+  const cur = S.cur;
+  const pairs = flat => { const out = []; for (let k = 0; k < flat.length; k += 2) out.push([flat[k], flat[k + 1]]); return out; };
+  const rising = pairs(scan.rising), setting = pairs(scan.setting);
   rising.sort((a, b) => a[1] - b[1]); setting.sort((a, b) => a[1] - b[1]);
   const li = ([i, eta]) => `<li><span>${esc(prettyName(S.names[i]))} <span class="dim">· ${dirName(cur[i * 7 + 3])}</span></span><span>${eta < 60 ? Math.round(eta) + ' s' : Math.round(eta / 60) + ' min'}</span></li>`;
   $('#rising').innerHTML = rising.slice(0, 6).map(li).join('') || '<li><span class="dim">nothing within reach</span></li>';

@@ -30,7 +30,19 @@ export class Globe {
     this.shadeKey = '';
   }
   setObserver(lat, lon) { this.lat0 = lat; this.lon0 = lon; this.spin = 0; this.tilt = 0; this.shadeKey = ''; }
-  setData(cur, N, domainIdx, colors) { this.cur = cur; this.N = N; this.domainIdx = domainIdx; this.colors = colors; }
+  setData(cur, N, domainIdx, colors) {
+    this.cur = cur; this.N = N; this.domainIdx = domainIdx; this.colors = colors;
+    // Per-object scratch reused every frame: the altitude scale (a log, refreshed once
+    // per second instead of 60 times), and per-colour point buckets so the canvas
+    // fillStyle changes ~20 times a frame instead of once per satellite.
+    this.rho = new Float32Array(N);
+    const B = colors.length * 2;
+    this.bufX = Array.from({ length: B }, () => new Float32Array(N));
+    this.bufY = Array.from({ length: B }, () => new Float32Array(N));
+    this.bn = new Int32Array(B);
+  }
+  // called once per data tick, not per frame
+  refreshScale() { const cur = this.cur, rho = this.rho; if (!cur) return; for (let i = 0, o = 2; i < this.N; i++, o += 7) rho[i] = altScale(cur[o]); }
   setHighlights(h) { this.highlights = h; }
   setTracks(t) { this.tracks = t; }
   drawTracks() {
@@ -107,22 +119,40 @@ export class Globe {
     if (!this.hidden(po)) { ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(po[0] - 6, po[1]); ctx.lineTo(po[0] + 6, po[1]); ctx.moveTo(po[0], po[1] - 6); ctx.lineTo(po[0], po[1] + 6); ctx.stroke(); this.label('you', po[0] + 8, po[1] - 6, '#ffd166'); }
     // satellites
     if (this.cur) {
-      const cur = this.cur, N = this.N, cols = this.colors, dom = this.domainIdx;
-      const hi = this.highlights; const hiSet = new Set(Object.values(hi).filter(v => v != null));
-      for (let i = 0; i < N; i++) {
-        const o = i * 7; const alt = cur[o + 2]; if (alt < 0) continue;
-        const p = this.project(cur[o], cur[o + 1], altScale(alt));
-        if (this.hidden(p)) continue;
-        if (p[0] < -4 || p[1] < -4 || p[0] > this.w + 4 || p[1] > this.h + 4) continue;
-        const above = cur[o + 4] > 0; const d = dom[i];
-        ctx.fillStyle = cols[d]; ctx.globalAlpha = above ? 0.95 : (d === 0 ? 0.28 : 0.5);
-        const sz = above ? 1.8 : 1.2; ctx.fillRect(p[0] - sz / 2, p[1] - sz / 2, sz, sz);
+      const cur = this.cur, N = this.N, cols = this.colors, dom = this.domainIdx, rho = this.rho;
+      // One pass, no per-object allocation and no trig recomputed: the observer-frame
+      // sines/cosines are hoisted, the altitude scale comes from a cache refreshed once
+      // per second, and points land in per-colour buckets so fillStyle is set ~20 times
+      // per frame instead of 13,000 times.
+      const lo0 = this.vlon, sinLa0 = Math.sin(this.vlat), cosLa0 = Math.cos(this.vlat);
+      const cx = this.cx, cy = this.cy, R = this.R, w = this.w, h = this.h;
+      const bufX = this.bufX, bufY = this.bufY, bn = this.bn;
+      bn.fill(0);
+      for (let i = 0, o = 0; i < N; i++, o += 7) {
+        if (cur[o + 2] < 0) continue;                       // no valid propagation
+        const la = cur[o] * D2R, dl = cur[o + 1] * D2R - lo0;
+        const cl = Math.cos(la), sl = Math.sin(la), cdl = Math.cos(dl);
+        const x = cl * Math.sin(dl), y = cosLa0 * sl - sinLa0 * cl * cdl;
+        const z = sinLa0 * sl + cosLa0 * cl * cdl;
+        const r = rho[i];
+        if (z < 0 && (x * x + y * y) * r * r < 1) continue; // hidden behind the Earth
+        const sx = cx + x * r * R, sy = cy - y * r * R;
+        if (sx < -4 || sy < -4 || sx > w + 4 || sy > h + 4) continue;
+        const b = dom[i] * 2 + (cur[o + 4] > 0 ? 1 : 0);
+        const k = bn[b]++; bufX[b][k] = sx; bufY[b][k] = sy;
+      }
+      for (let b = 0, B = bn.length; b < B; b++) {
+        const n = bn[b]; if (!n) continue;
+        const above = b & 1;
+        ctx.fillStyle = cols[b >> 1]; ctx.globalAlpha = above ? 0.95 : ((b >> 1) === 0 ? 0.28 : 0.5);
+        const sz = above ? 1.8 : 1.2, half = sz / 2, X = bufX[b], Y = bufY[b];
+        for (let k = 0; k < n; k++) ctx.fillRect(X[k] - half, Y[k] - half, sz, sz);
       }
       ctx.globalAlpha = 1;
       this.drawTracks();
-      const pulse = 0.5 + 0.5 * Math.sin(now / 500);
+      const hi = this.highlights, pulse = 0.5 + 0.5 * Math.sin(now / 500);
       for (const [k, idx] of Object.entries(hi)) {
-        if (idx == null) continue; const o = idx * 7; if (this.cur[o + 2] < 0) continue;
+        if (idx == null || typeof idx !== 'number') continue; const o = idx * 7; if (this.cur[o + 2] < 0) continue;
         const p = this.project(cur[o], cur[o + 1], altScale(cur[o + 2])); if (this.hidden(p)) continue;
         const col = k === 'iss' ? '#fff' : k === 'sun' ? '#ffd166' : k === 'moon' ? '#cfd8ff' : '#7fd6ff';
         ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(p[0], p[1], 4 + pulse * 3, 0, 6.2832); ctx.stroke();

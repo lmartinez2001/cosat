@@ -18,6 +18,37 @@ Give it your birth date and where you are, and it produces a live chart:
 - **Transits** — what is rising and setting over you in the next minutes.
 - **Reality check** — the propagated ISS position vs. independent live telemetry.
 
+## The three rituals
+
+Beyond the chart, the app asks you to do something no horoscope can ask: go and check.
+
+**Go outside.** Your *guardian* is a real object still in orbit, chosen for being launched as
+close to your birthday as possible and low enough to actually watch (geostationary satellites
+never rise or set, so they make a poor appointment). The app finds its next genuinely visible
+pass: the satellite must be in sunlight while you are in darkness, which is why satellites are
+seen after dusk and before dawn and never at midnight. You get the minute, the compass bearing,
+the peak elevation, a live countdown and a drawing of the arc it will trace. Then:
+
+- **Put it in my calendar** downloads a real calendar file with the next five passes and a
+  ten-minute alarm on each, so the app lives in your calendar instead of competing for attention.
+- **Point my phone at it** uses the orientation sensors to work out where the back of the phone
+  is aimed and tells you how many degrees off you are, logging the sighting when you land on it.
+- **I saw it** keeps a logbook: confirmations, distinct satellites seen, and a night streak.
+
+**Memento mori.** Everything in low orbit is falling. Each build records where every orbit was
+when it was first seen, and ships that baseline inside the catalogue the browser already
+downloads, so the decay is measured from real successive element sets rather than modelled. The
+page shows the current altitude, the sink rate, and an estimated time until it meets the
+atmosphere. It refuses to print a lifetime the data cannot support: a satellite holding station
+with thrusters is reported as *held*, not given a fake century. Your natal object, usually long
+since burned up, gets a memorial with its real re-entry date.
+
+**Compatibility.** Two birthdays, two real satellites, five axes computed from catalogue values:
+the ratio of their orbital periods and how often they realign, the true angle between their
+orbital planes, the altitudes they live at, whether the same programme launched them, and whether
+either is still up there. When both are still in orbit it also reports the closest the two
+actually come to each other over the next three days. Results are shareable by link.
+
 ## Shorts
 
 `feed.html` is a vertical, snap-scrolling **video** feed in the style of Shorts / Reels: full-screen
@@ -91,6 +122,9 @@ lib/celestrak.js   polite cached upstream client
 lib/satcat.js      SATCAT parser and natal lookup
 lib/groups.js      which CelesTrak groups we track, and which "house" each rules
 public/app.js      orchestration, live analysis, DOM
+public/features.js the three rituals: passes, decay, compatibility
+public/predict.js  worker: visible-pass search, close approaches, plane geometry
+lib/history.js     per-object orbital baselines, so decay is measured not guessed
 public/worker.js   SGP4 propagation of the whole catalog (1 Hz)
 public/globe.js    orthographic globe with day/night terminator and orbit trails
 public/wheel.js    natal-style sky wheel

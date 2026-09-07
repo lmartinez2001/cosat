@@ -58,6 +58,7 @@
         <div><span class="lbl">Rising</span><b id="b3-rising">—</b><small id="b3-rising-sub" class="mono dim"></small></div>
       </div>
       <p class="fine">Live. Your rising sign changes roughly every minute. This is normal. You are fine.</p>
+      <a class="teaser mono" id="teaser" href="#ritual" hidden></a>
     </div>
 
     <div class="wheel-wrap">
@@ -82,6 +83,45 @@
     <div class="natal" id="natal">
       <h2>The day you were born</h2>
       <div id="natal-body"></div>
+    </div>
+
+
+    <div class="ritual" id="ritual">
+      <h2>Go outside</h2>
+      <p class="fine">Astrology cannot be checked. This can. Your satellite is a real object on a known orbit, and it will cross your sky at a time we can compute to the second. Sunlit satellite, dark sky, no telescope.</p>
+      <div class="guardian" id="guardian-box"></div>
+      <div class="pass-main" id="pass-main"></div>
+      <canvas id="pass-arc" aria-label="The path your satellite will take across your sky"></canvas>
+      <div class="pass-actions">
+        <button type="button" class="primary" id="add-cal">Put it in my calendar</button>
+        <button type="button" class="ghost" id="aim-btn">◎ Point my phone at it</button>
+        <button type="button" class="ghost" id="saw-it">I saw it</button>
+      </div>
+      <div class="aim" id="aim" hidden><div class="aim-dial"><canvas id="aim-canvas"></canvas></div><p class="aim-note mono" id="aim-note"></p></div>
+      <div class="logbook" id="logbook"></div>
+      <ul class="pass-list mono" id="pass-list"></ul>
+    </div>
+
+    <div class="mortality" id="mortality">
+      <h2>Memento mori</h2>
+      <div id="mortality-body"></div>
+    </div>
+
+    <div class="compat" id="compat">
+      <h2>Compatibility</h2>
+      <p class="fine">Astrological compatibility is invented. This one is geometry: two birthdays, two real satellites, and the actual angle between the planes they fly in.</p>
+      <form id="compat-form" autocomplete="off">
+        <div class="compat-row">
+          <div class="field"><label for="c-name-a">Name</label><input id="c-name-a" type="text" maxlength="24" placeholder="you"></div>
+          <div class="field"><label for="c-date-a">Born on</label><input id="c-date-a" type="date" required min="1957-10-04" max="2026-12-31"></div>
+        </div>
+        <div class="compat-row">
+          <div class="field"><label for="c-name-b">Their name</label><input id="c-name-b" type="text" maxlength="24" placeholder="them"></div>
+          <div class="field"><label for="c-date-b">Born on</label><input id="c-date-b" type="date" required min="1957-10-04" max="2026-12-31"></div>
+        </div>
+        <button type="submit" class="primary" id="compat-go">Compare our orbits</button>
+      </form>
+      <div id="compat-out"></div>
     </div>
 
     <div class="transits">

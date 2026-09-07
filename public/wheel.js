@@ -6,7 +6,13 @@ const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI'
 export class Wheel {
   constructor(canvas) { this.c = canvas; this.ctx = canvas.getContext('2d'); this.cur = null; this.N = 0; this.bodies = []; this.resize(); new ResizeObserver(() => this.resize()).observe(canvas); }
   resize() { const dpr = Math.min(2, window.devicePixelRatio || 1); const w = this.c.clientWidth || 600; this.c.width = this.c.height = Math.round(w * dpr); this.dpr = dpr; this.w = w; this.cx = this.cy = w / 2; this.R = w * 0.46; this.Rin = this.R * 0.84; }
-  setData(cur, N, domainIdx, colors) { this.cur = cur; this.N = N; this.domainIdx = domainIdx; this.colors = colors; }
+  setData(cur, N, domainIdx, colors) {
+    this.cur = cur; this.N = N; this.domainIdx = domainIdx; this.colors = colors;
+    const B = colors.length * 2;
+    this.bufX = Array.from({ length: B }, () => new Float32Array(N));
+    this.bufY = Array.from({ length: B }, () => new Float32Array(N));
+    this.bn = new Int32Array(B);
+  }
   // bodies: [{name, az, el, kind:'sun'|'moon'|'sat', color, label}]
   setBodies(b) { this.bodies = b; }
   setTracks(t) { this.tracks = t; }
@@ -40,8 +46,24 @@ export class Wheel {
     for (const [az, t] of [[0, 'N'], [90, 'E · ASC'], [180, 'S'], [270, 'W · DSC']]) { const a = az * D2R, r = R + w * 0.045; ctx.fillText(t, cx - r * Math.sin(a), cy - r * Math.cos(a)); }
     // satellites
     if (this.cur) {
-      const cur = this.cur, dom = this.domainIdx, cols = this.colors;
-      for (let i = 0; i < this.N; i++) { const o = i * 7; const el = cur[o + 4]; if (el < -8 || cur[o + 2] < 0) continue; const [x, y] = this.xy(cur[o + 3], el); ctx.fillStyle = cols[dom[i]]; ctx.globalAlpha = el >= 0 ? (dom[i] === 0 ? 0.55 : 0.9) : 0.25; const s = el >= 0 ? 2 : 1.4; ctx.fillRect(x - s / 2, y - s / 2, s, s); }
+      // bucketed by colour, same as the globe: one fillStyle change per bucket
+      const cur = this.cur, dom = this.domainIdx, cols = this.colors, N = this.N;
+      const bufX = this.bufX, bufY = this.bufY, bn = this.bn, Rin = this.Rin, Rr = this.R;
+      bn.fill(0);
+      for (let i = 0, o = 0; i < N; i++, o += 7) {
+        const el = cur[o + 4]; if (el < -8 || cur[o + 2] < 0) continue;
+        const r = el >= 0 ? Rin * (90 - el) / 90 : Rin + (Rr - Rin) * Math.min(1, -el / 8);
+        const a = cur[o + 3] * D2R;
+        const b = dom[i] * 2 + (el >= 0 ? 1 : 0), k = bn[b]++;
+        bufX[b][k] = cx - r * Math.sin(a); bufY[b][k] = cy - r * Math.cos(a);
+      }
+      for (let b = 0, B = bn.length; b < B; b++) {
+        const n = bn[b]; if (!n) continue;
+        const up = b & 1, d = b >> 1;
+        ctx.fillStyle = cols[d]; ctx.globalAlpha = up ? (d === 0 ? 0.55 : 0.9) : 0.25;
+        const s = up ? 2 : 1.4, half = s / 2, X = bufX[b], Y = bufY[b];
+        for (let k = 0; k < n; k++) ctx.fillRect(X[k] - half, Y[k] - half, s, s);
+      }
       ctx.globalAlpha = 1;
     }
     // trails of the highlighted satellites (past and next minutes)
