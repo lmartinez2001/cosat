@@ -3,11 +3,13 @@
 //   public/data/catalog.json      merged orbital elements
 //   public/data/status.json       per-group fetch times (for the methodology panel)
 //   public/data/natal/<year>.json launches by date, one shard per year
+//   public/data/videos.json      YouTube video pool for the Shorts feed
 const fs = require('fs');
 const path = require('path');
 const ct = require('../lib/celestrak');
 const GROUPS = require('../lib/groups');
 const { buildCatalog, natalShards } = require('../lib/catalog');
+const videos = require('../lib/videos');
 
 (async () => {
   await ct.refreshSatcat();
@@ -21,6 +23,7 @@ const { buildCatalog, natalShards } = require('../lib/catalog');
   fs.writeFileSync(path.join(out, 'status.json'), JSON.stringify({ ...st, catalog: { builtAt: Date.now(), count: cat.count }, static: true }));
   const ns = natalShards();
   if (ns) for (const [y, byDate] of Object.entries(ns.years)) fs.writeFileSync(path.join(out, 'natal', y + '.json'), JSON.stringify({ year: +y, total: ns.total, fetchedAt: ns.fetchedAt, byDate }));
+  try { const v = await videos.refreshVideos(); fs.writeFileSync(path.join(out, 'videos.json'), JSON.stringify(v)); console.log('videos:', v.videos.length); } catch (e) { console.error('videos failed (non-fatal):', e.message); }
   const missing = GROUPS.filter(g => !ct.get('gp-' + g.id).body).map(g => g.id);
   console.log(`static build: ${cat.count} objects, ${ns ? Object.keys(ns.years).length : 0} natal shards${missing.length ? '; MISSING groups: ' + missing.join(', ') : ''}`);
 })();

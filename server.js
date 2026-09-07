@@ -6,6 +6,7 @@ const zlib = require('zlib');
 const ct = require('./lib/celestrak');
 const satcat = require('./lib/satcat');
 const GROUPS = require('./lib/groups');
+const videos = require('./lib/videos');
 
 const PORT = +process.env.PORT || 4321;
 const PUBLIC = path.join(__dirname, 'public');
@@ -45,6 +46,11 @@ async function getIss() {
   return iss.inflight;
 }
 
+// ---------- video pool (YouTube search scrape, 12 h cache) ----------
+let videoRefresh = null;
+function getVideos() { if (!videoRefresh) videoRefresh = videos.refreshVideos().catch(e => { log('videos error', e.message); return videos.readCache(); }).finally(() => { setTimeout(() => { videoRefresh = null; }, 60_000); }); return videoRefresh; }
+setTimeout(getVideos, 5000);
+
 // ---------- refresh scheduler ----------
 async function refreshAll() {
   // sequential, spaced by the client; stale groups only.
@@ -81,6 +87,11 @@ const server = http.createServer(async (req, res) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return send(res, 400, { error: 'date must be YYYY-MM-DD' });
       const r = satcat.natal(idx, date);
       return send(res, 200, { ...r, satcatFetchedAt: ct.get('satcat').fetchedAt, totalCatalogued: idx.total }, { 'Cache-Control': 'public, max-age=3600' });
+    }
+    if (url.pathname === '/api/videos') {
+      const cached = videos.readCache(); getVideos();
+      if (!cached) return send(res, 503, { error: 'video pool warming up' }, { 'Retry-After': '30' });
+      return send(res, 200, cached, { 'Cache-Control': 'public, max-age=1800' });
     }
     if (url.pathname === '/api/iss') {
       const s = await getIss();

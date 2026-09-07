@@ -28,102 +28,120 @@ const lineOf = (i) => { const c = cur(i); return `<b>${esc(name(i))}</b> · el $
 const setOrClimb = i => { const c = cur(i); return c.rate < -0.002 ? `sets in ${mins(c.el / -c.rate)}` : c.rate > 0.002 ? `still climbing` : `hanging there`; };
 const believes = i => (meta(i).c * 7919) % 4200 + 37, doubts = i => (meta(i).c * 104729) % 900 + 12;
 
-// ---------------- real content sources ----------------
-// Everything shown is real, fetched live in the browser from sources that allow it:
-//  * Wikipedia: a walk through the UFO / ufology category tree plus rolling searches (CC BY-SA)
-//  * Internet Archive: UFO documents, declassified files and films (title-matched)
-//  * Hacker News: stories about UFOs / UAP / satellites (via Algolia)
-// The only thing CO—SAT adds is the live line about what is really above you.
+// ---------------- real video sources ----------------
+// Every card is a real video, fetched live from sources a static site can reach:
+//  * YouTube: a pool of search results gathered server-side (the GitHub Action or the
+//    local server), embedded with the official IFrame player
+//  * Wikimedia Commons: video files (Pentagon UAP releases, hearings, footage), played directly
+//  * Internet Archive: UFO films, documentaries and news reels (H.264 derivatives), played directly
+// CO—SAT adds only the live line about what is really above you.
 const enc = encodeURIComponent;
 async function getJSON(url) { try { const r = await fetch(url, { headers: { Accept: 'application/json' } }); if (!r.ok) return null; return await r.json(); } catch { return null; } }
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const strip = h => String(h || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 const trunc = (t, n) => t.length <= n ? t : t.slice(0, n).replace(/\s+\S*$/, '') + '…';
 
-const WIKI_SEEDS = ['Category:UFO conspiracy theories', 'Category:UFO sightings', 'Category:Ufology', 'Category:Unidentified flying objects', 'Category:UFO culture', 'Category:Alien abduction'];
-const WIKI_SEARCHES = ['UFO sighting', 'unidentified flying object', 'flying saucer', 'unidentified anomalous phenomena', 'satellite conspiracy theory', 'UFO conspiracy', 'Project Blue Book', 'alien abduction claim', 'UFO hoax', 'UFO documentary', 'ufologist', 'UFO incident'];
-const SKIP_TITLE = /^(List of|Category:|Template:|Portal:|Wikipedia:|Draft:|File:)/;
-const wiki = { queue: [], seen: new Set(), cats: WIKI_SEEDS.slice(), catSeen: new Set(), si: 0, offsets: {}, exhausted: false };
-async function wikiFill() {
-  let guard = 0;
-  while (wiki.queue.length < 6 && guard++ < 8) {
-    if (wiki.cats.length) {
-      const c = wiki.cats.shift(); if (wiki.catSeen.has(c)) continue; wiki.catSeen.add(c);
-      const d = await getJSON(`https://en.wikipedia.org/w/api.php?action=query&list=categorymembers&cmtitle=${enc(c)}&cmlimit=200&cmtype=page|subcat&format=json&origin=*`);
-      const fresh = [];
-      for (const m of d?.query?.categorymembers || []) { if (m.ns === 14) { if (!wiki.catSeen.has(m.title)) wiki.cats.push(m.title); } else if (m.ns === 0 && !SKIP_TITLE.test(m.title) && !wiki.seen.has(m.title)) { wiki.seen.add(m.title); fresh.push(m.title); } }
-      wiki.queue.push(...shuffle(fresh)); shuffle(wiki.cats);
-    } else {
-      const q = WIKI_SEARCHES[wiki.si % WIKI_SEARCHES.length]; wiki.si++; const off = wiki.offsets[q] || 0;
-      const d = await getJSON(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${enc(q)}&srlimit=50&sroffset=${off}&srnamespace=0&format=json&origin=*`);
-      const hits = d?.query?.search || []; wiki.offsets[q] = off + 50;
-      const fresh = hits.map(h => h.title).filter(t => !SKIP_TITLE.test(t) && !wiki.seen.has(t)); fresh.forEach(t => wiki.seen.add(t)); wiki.queue.push(...shuffle(fresh));
-      if (!hits.length && wiki.si % WIKI_SEARCHES.length === 0) { wiki.offsets = {}; wiki.seen.clear(); wiki.cats = WIKI_SEEDS.slice(); wiki.catSeen.clear(); } // start over: the feed is a loop, like the sky
-    }
-  }
+const yt = { items: [], loaded: false, all: [] };
+async function loadYouTube() {
+  if (yt.loaded || Date.now() < (yt.retryAt || 0)) return; const d = await getJSON(sky.STATIC ? 'data/videos.json' : 'api/videos');
+  if (!d) { yt.retryAt = Date.now() + 20000; return; } // local server may still be building the pool; try again later
+  yt.all = (d.videos || []).filter(v => v.id && v.title); yt.items = shuffle(yt.all.slice()); yt.loaded = true;
 }
-async function wikiCard() {
-  for (let tries = 0; tries < 4; tries++) {
-    await wikiFill(); const title = wiki.queue.shift(); if (!title) return null;
-    const s = await getJSON(`https://en.wikipedia.org/api/rest_v1/page/summary/${enc(title.replace(/ /g, '_'))}`);
-    if (!s || s.type === 'disambiguation' || !s.extract || s.extract.length < 80) continue;
-    let image = null; if (s.thumbnail?.source && s.originalimage?.width) { const w = Math.min(900, s.originalimage.width); image = s.thumbnail.source.replace(/\/\d+px-/, `/${w}px-`); }
-    return { source: 'wikipedia', kicker: `Wikipedia · ${s.description || 'article'}`, title: s.title, body: trunc(s.extract, 330), image, url: s.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${enc(title)}`, credit: 'Text: Wikipedia contributors, CC BY-SA 4.0', id: 'wiki:' + s.title };
+function ytCard() {
+  if (!yt.items.length) { if (!yt.all.length) return null; yt.items = shuffle(yt.all.slice()); }
+  const v = yt.items.shift();
+  return { source: 'youtube', kind: 'youtube', id: 'yt:' + v.id, videoId: v.id, kicker: `YouTube · ${v.channel || 'Shorts'}${v.views ? ' · ' + v.views : ''}${v.length && v.length !== 'short' ? ' · ' + v.length : ''}`, title: v.title, body: `${v.published ? 'Published ' + v.published + '. ' : ''}Surfaced by a search for “${v.query}”. Not an endorsement; the sky below is.`, url: `https://www.youtube.com/watch?v=${v.id}`, credit: 'Plays from youtube.com in the official embedded player' };
+}
+const commons = { queries: ['UAP', 'UFO', 'flying saucer', 'alien', 'Starlink', 'satellite launch', 'space debris', 'ISS'], qi: 0, offsets: {}, items: [], seen: new Set() };
+async function commonsCard() {
+  for (let tries = 0; tries < 3 && !commons.items.length; tries++) {
+    const q = commons.queries[commons.qi % commons.queries.length]; commons.qi++; const off = commons.offsets[q] || 0;
+    const d = await getJSON(`https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${enc(q + ' filemime:video')}&gsrnamespace=6&gsrlimit=25&gsroffset=${off}&prop=videoinfo&viprop=url|derivatives|mime|size|extmetadata&viurlwidth=900&viextmetadatafilter=ImageDescription|LicenseShortName|Artist&format=json&origin=*`);
+    commons.offsets[q] = off + 25; const pages = Object.values(d?.query?.pages || {});
+    if (!pages.length) commons.offsets[q] = 0;
+    commons.items.push(...shuffle(pages.filter(p => p.videoinfo && !commons.seen.has(p.title))));
   }
-  return null;
+  const p = commons.items.shift(); if (!p) return null; commons.seen.add(p.title);
+  const vi = p.videoinfo[0]; const der = vi.derivatives || [];
+  const pickKey = re => der.find(x => re.test(x.transcodekey || '')); const webm = pickKey(/480p.*webm/) || pickKey(/360p.*webm/) || pickKey(/240p.*webm/); const mp4 = pickKey(/mpeg4|mp4|mov/);
+  const sources = []; if (mp4) sources.push({ src: mp4.src, type: 'video/mp4' }); if (webm) sources.push({ src: webm.src, type: 'video/webm' }); if (!sources.length) sources.push({ src: vi.url, type: vi.mime });
+  const md = vi.extmetadata || {}; const title = p.title.replace(/^File:/, '').replace(/\.\w+$/, '');
+  return { source: 'commons', kind: 'video', id: 'commons:' + p.pageid, sources, poster: vi.thumburl, kicker: `Wikimedia Commons · ${strip(md.LicenseShortName?.value || 'free license')}${md.Artist?.value ? ' · ' + trunc(strip(md.Artist.value), 40) : ''}`, title, body: trunc(strip(md.ImageDescription?.value) || 'A video file from Wikimedia Commons.', 260), url: vi.descriptionurl || `https://commons.wikimedia.org/wiki/${enc(p.title)}`, credit: 'Wikimedia Commons · plays from upload.wikimedia.org' };
 }
 const archive = { page: 1, items: [], seen: new Set() };
 async function archiveCard() {
-  if (!archive.items.length) {
-    const q = 'title:(UFO OR UFOs OR "flying saucer" OR "flying saucers" OR "unidentified flying" OR "Project Blue Book" OR UAP) AND mediatype:(texts OR movies) AND NOT collection:(speedruns)';
-    const d = await getJSON(`https://archive.org/advancedsearch.php?q=${enc(q)}&fl[]=identifier&fl[]=title&fl[]=description&fl[]=date&fl[]=mediatype&fl[]=creator&fl[]=downloads&rows=40&page=${archive.page}&output=json&sort[]=downloads+desc`);
-    const docs = d?.response?.docs || []; archive.page = docs.length ? archive.page + 1 : 1;
-    archive.items = shuffle(docs.filter(x => !archive.seen.has(x.identifier))); if (!archive.items.length) return null;
+  for (let tries = 0; tries < 4; tries++) {
+    if (!archive.items.length) {
+      const q = 'mediatype:movies AND (title:(UFO OR UFOs OR "flying saucer" OR "flying saucers" OR UAP OR "unidentified flying" OR "Project Blue Book") OR subject:(UFO OR UFOs OR ufology OR "flying saucers" OR UAP))';
+      const d = await getJSON(`https://archive.org/advancedsearch.php?q=${enc(q)}&fl[]=identifier&fl[]=title&fl[]=description&fl[]=date&fl[]=creator&fl[]=downloads&rows=40&page=${archive.page}&output=json&sort[]=downloads+desc`);
+      const docs = d?.response?.docs || []; archive.page = docs.length ? archive.page + 1 : 1;
+      archive.items = shuffle(docs.filter(x => !archive.seen.has(x.identifier))); if (!archive.items.length) return null;
+    }
+    const it = archive.items.shift(); archive.seen.add(it.identifier);
+    const m = await getJSON(`https://archive.org/metadata/${it.identifier}`); const files = (m?.files || []).filter(f => /\.mp4$/i.test(f.name) && +f.size > 0);
+    if (!files.length) continue;
+    files.sort((a, b) => (/512kb/i.test(b.name) - /512kb/i.test(a.name)) || (+a.size - +b.size)); const f = files[0];
+    const desc = strip(Array.isArray(it.description) ? it.description.join(' ') : it.description); const year = (it.date || '').slice(0, 4);
+    return { source: 'archive', kind: 'video', id: 'archive:' + it.identifier, sources: [{ src: `https://archive.org/download/${it.identifier}/${enc(f.name)}`, type: 'video/mp4' }], poster: `https://archive.org/services/img/${it.identifier}`, kicker: `Internet Archive · film${year ? ' · ' + year : ''}${it.creator ? ' · ' + trunc(strip(Array.isArray(it.creator) ? it.creator[0] : it.creator), 32) : ''}`, title: strip(it.title), body: trunc(desc || `A film from the Internet Archive with ${(it.downloads || 0).toLocaleString()} downloads.`, 260), url: `https://archive.org/details/${it.identifier}`, credit: `Internet Archive · ${(it.downloads || 0).toLocaleString()} downloads · ${(+f.size / 1e6).toFixed(0)} MB` };
   }
-  const it = archive.items.shift(); archive.seen.add(it.identifier);
-  const desc = strip(Array.isArray(it.description) ? it.description.join(' ') : it.description); const year = (it.date || '').slice(0, 4);
-  const kind = it.mediatype === 'movies' ? 'film' : 'document';
-  return { source: 'archive', kicker: `Internet Archive · ${kind}${year ? ' · ' + year : ''}${it.creator ? ' · ' + strip(Array.isArray(it.creator) ? it.creator[0] : it.creator) : ''}`, title: strip(it.title), body: trunc(desc || `A ${kind} from the Internet Archive with ${(it.downloads || 0).toLocaleString()} downloads.`, 300), image: it.mediatype === 'texts' ? `https://archive.org/download/${it.identifier}/page/cover_w800.jpg` : `https://archive.org/services/img/${it.identifier}`, imageFallback: `https://archive.org/services/img/${it.identifier}`, url: `https://archive.org/details/${it.identifier}`, credit: `Internet Archive · ${(it.downloads || 0).toLocaleString()} downloads`, id: 'archive:' + it.identifier };
+  return null;
 }
-const hn = { page: 0, items: [], qi: 0, queries: ['UFO', 'UAP', 'unidentified aerial', 'flying saucer', 'alien spacecraft', 'Pentagon UFO', 'satellite conspiracy'] };
-async function hnCard() {
-  if (!hn.items.length) {
-    const q = hn.queries[hn.qi % hn.queries.length]; const d = await getJSON(`https://hn.algolia.com/api/v1/search?query=${enc(q)}&tags=story&hitsPerPage=30&page=${hn.page}`);
-    const hits = (d?.hits || []).filter(h => h.title && h.points >= 20 && /ufo|uap|saucer|alien|unidentified|anomalous|extraterrestrial|satellite/i.test(h.title));
-    hn.items = shuffle(hits); hn.qi++; if (hn.qi % hn.queries.length === 0) hn.page = (hn.page + 1) % 5; if (!hn.items.length) return null;
-  }
-  const h = hn.items.shift(); let host = ''; try { host = new URL(h.url).hostname.replace(/^www\./, ''); } catch { }
-  return { source: 'hn', kicker: `Hacker News · ${h.points} points · ${h.num_comments || 0} comments`, title: strip(h.title), body: `${host ? 'From ' + host + '. ' : ''}Posted ${new Date(h.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}. Read the story, then the thread, then remember which one you believed first.`, image: null, url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`, discuss: `https://news.ycombinator.com/item?id=${h.objectID}`, credit: 'Hacker News via Algolia', id: 'hn:' + h.objectID };
-}
-const PATTERN = ['wikipedia', 'wikipedia', 'archive', 'wikipedia', 'hn', 'wikipedia', 'archive', 'wikipedia', 'wikipedia', 'hn'];
+const PATTERN = ['youtube', 'youtube', 'commons', 'youtube', 'archive', 'youtube', 'commons', 'youtube', 'archive'];
 let patternPos = Math.floor(Math.random() * PATTERN.length); const usedIds = new Set();
 async function nextContent() {
-  for (let k = 0; k < 6; k++) {
+  await loadYouTube();
+  for (let k = 0; k < PATTERN.length; k++) {
     const src = PATTERN[(patternPos + k) % PATTERN.length];
-    const c = await (src === 'wikipedia' ? wikiCard() : src === 'archive' ? archiveCard() : hnCard());
+    const c = await (src === 'youtube' ? ytCard() : src === 'commons' ? commonsCard() : archiveCard());
     if (c && !usedIds.has(c.id)) { usedIds.add(c.id); patternPos = (patternPos + k + 1) % PATTERN.length; return c; }
   }
   return null;
 }
-// live tie-in: a satellite that is really above you, for the radar + the live line
+// live tie-in: a satellite that is really above you, for the mini radar + the live line
 function liveSat() { const list = above((i, c) => c.alt < 2500 && c.el > 8); return list.length ? rnd(list) : (above().length ? rnd(above()) : -1); }
-function liveLine(i) { const n = above().length; if (i < 0) return `<b>${n}</b> catalogued objects above your horizon right now`; return `<b>${n}</b> objects above you · nearest to this reel: ${lineOf(i)} · ${setOrClimb(i)}`; }
+function liveLine(i) { const n = above().length; if (i < 0) return `<b>${n}</b> catalogued objects above your horizon right now`; return `<b>${n}</b> objects above you · on the radar: ${lineOf(i)} · ${setOrClimb(i)}`; }
+
+// ---------------- players ----------------
+let soundOn = false;
+let ytReady = null;
+function loadYT() { if (ytReady) return ytReady; ytReady = new Promise(res => { if (window.YT && window.YT.Player) return res(); window.onYouTubeIframeAPIReady = () => res(); const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s); }); return ytReady; }
+function mediaFailed(card, why) { const m = card.el.querySelector('.media'); m.innerHTML = `<div class="unavailable"><div class="mono">${esc(why)}</div><div>This one will not play here. Open the source, or keep scrolling.</div></div>`; card.failed = true; }
+async function attachMedia(card) {
+  if (card.attached) return; card.attached = true; const c = card.content; const m = card.el.querySelector('.media');
+  if (c.kind === 'youtube') {
+    await loadYT(); const holder = document.createElement('div'); m.appendChild(holder);
+    card.player = new YT.Player(holder, { videoId: c.videoId, host: 'https://www.youtube-nocookie.com', playerVars: { autoplay: 1, mute: 1, playsinline: 1, controls: 1, rel: 0, loop: 1, playlist: c.videoId, modestbranding: 1, iv_load_policy: 3, origin: location.origin },
+      events: { onReady: e => { if (card.visible) { e.target.mute(); e.target.playVideo(); if (soundOn) e.target.unMute(); } else e.target.pauseVideo(); }, onError: e => mediaFailed(card, 'YouTube error ' + e.data + (e.data === 101 || e.data === 150 ? ' · embedding disabled by the uploader' : '')) } });
+  } else {
+    const v = document.createElement('video'); v.playsInline = true; v.muted = !soundOn; v.loop = true; v.preload = 'metadata'; v.controls = false; if (c.poster) v.poster = c.poster;
+    for (const s of c.sources) { const src = document.createElement('source'); src.src = s.src; src.type = s.type; v.appendChild(src); }
+    v.addEventListener('error', () => { if (v.networkState === 3 || v.error) mediaFailed(card, 'video failed to load'); }, true);
+    v.addEventListener('click', () => { if (v.paused) v.play(); else v.pause(); });
+    m.appendChild(v); card.video = v; if (card.visible) v.play().catch(() => { });
+  }
+}
+function detachMedia(card) { if (!card.attached) return; card.attached = false; try { card.player?.destroy(); } catch { } card.player = null; if (card.video) { card.video.pause(); card.video.removeAttribute('src'); card.video.load(); card.video = null; } const m = card.el.querySelector('.media'); if (m) m.innerHTML = ''; }
+function playState(card, on) {
+  if (card.player && card.player.playVideo) { try { on ? (card.player.playVideo(), soundOn ? card.player.unMute() : card.player.mute()) : card.player.pauseVideo(); } catch { } }
+  if (card.video) { card.video.muted = !soundOn; on ? card.video.play().catch(() => { }) : card.video.pause(); }
+}
+function applySound() { document.querySelectorAll('.rail .sound').forEach(b => { b.textContent = soundOn ? '🔊' : '🔇'; b.classList.toggle('on', soundOn); }); for (const c of cards) if (c.visible) playState(c, true); document.querySelectorAll('.tap-sound').forEach(t => t.hidden = soundOn); }
 
 // ---------------- rendering ----------------
 function addCard(c) {
-  const n = ++cardSeq; const el = document.createElement('section'); el.className = 'short' + (c.image ? ' has-img' : ''); el.dataset.source = c.source;
+  const n = ++cardSeq; const el = document.createElement('section'); el.className = 'short'; el.dataset.source = c.source;
   const sat = liveSat(); const bel = (n * 7919 + (sat >= 0 ? meta(sat).c : 0)) % 4200 + 37, dou = (n * 104729) % 900 + 12;
-  el.innerHTML = `${c.image ? `<img class="bg" alt="" src="${c.image}" loading="lazy" decoding="async">` : ''}<canvas></canvas><div class="grain"></div><div class="shade"></div>
-    <div class="top"><span><span class="brand">CO—SAT Shorts · </span>#${n}</span><span class="stamp">Real sources</span></div>
+  el.innerHTML = `<div class="media"></div><div class="shade"></div><canvas class="mini" aria-hidden="true"></canvas>
+    <div class="top"><span><span class="brand">CO—SAT Shorts · </span>#${n}</span><span class="stamp">Real videos</span></div>
+    <button class="tap-sound" ${soundOn ? 'hidden' : ''}>🔇 tap for sound</button>
     <div class="text"><div class="kicker">${esc(c.kicker)}</div><h1 class="title">${esc(c.title)}</h1><p class="body">${esc(c.body)}</p><p class="credit">${esc(c.credit)}</p><div class="reality"><span class="lbl">Meanwhile, above you</span><span class="rtxt">${liveLine(sat)}</span></div></div>
-    <div class="rail"><div><button class="believe" title="believe">👁</button><small>${bel.toLocaleString()}</small></div><div><button class="doubt" title="doubt">🛰</button><small>${dou.toLocaleString()}</small></div><div><a class="src" href="${c.url}" target="_blank" rel="noopener" title="open source">↗</a><small>source</small></div><div><button class="share" title="share">⇪</button><small>share</small></div></div>`;
+    <div class="rail"><div><button class="sound" title="sound">${soundOn ? '🔊' : '🔇'}</button><small>sound</small></div><div><button class="believe" title="believe">👁</button><small>${bel.toLocaleString()}</small></div><div><button class="doubt" title="doubt">🛰</button><small>${dou.toLocaleString()}</small></div><div><a class="src" href="${c.url}" target="_blank" rel="noopener" title="open source">↗</a><small>source</small></div><div><button class="share" title="share">⇪</button><small>share</small></div></div>`;
   const canvas = el.querySelector('canvas'); const ctx = canvas.getContext('2d');
-  const card = { el, canvas, ctx, spec: { viz: { kind: c.image ? 'radar' : rnd(['radar', 'globe', 'radar', 'ping']), sat } }, content: c, state: { trail: [], t0: Date.now(), stars: null, track: null }, visible: false, n };
-  if (card.spec.viz.kind === 'globe' && sat < 0) card.spec.viz.kind = 'radar';
-  card.resize = () => { const dpr = Math.min(2, devicePixelRatio || 1); const w = el.clientWidth, h = el.clientHeight; if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); } card.w = w; card.h = h; card.dpr = dpr; };
+  const card = { el, canvas, ctx, spec: { viz: { kind: 'radar', sat } }, content: c, state: { trail: [], t0: Date.now(), stars: null, track: null }, visible: false, n, mini: true };
+  card.resize = () => { const dpr = Math.min(2, devicePixelRatio || 1); const w = canvas.clientWidth || 120, h = canvas.clientHeight || 120; if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); } card.w = w; card.h = h; card.dpr = dpr; };
   card.tick = () => { if (sat >= 0) { const s = cur(sat); if (s.el > -10) card.state.trail.push([s.az, s.el]); if (card.state.trail.length > 240) card.state.trail.shift(); } el.querySelector('.rtxt').innerHTML = liveLine(sat); };
-  const img = el.querySelector('img.bg'); if (img) img.onerror = () => { if (c.imageFallback && img.src !== c.imageFallback) { img.src = c.imageFallback; return; } img.remove(); el.classList.remove('has-img'); };
   el.querySelector('.believe').onclick = e => toggle(e.currentTarget, bel, '👁'); el.querySelector('.doubt').onclick = e => toggle(e.currentTarget, dou, '🛰');
+  el.querySelector('.sound').onclick = () => { soundOn = !soundOn; applySound(); }; el.querySelector('.tap-sound').onclick = () => { soundOn = true; applySound(); };
   el.querySelector('.share').onclick = async () => { const url = location.href.split('#')[0] + '#' + enc(c.id); try { if (navigator.share) await navigator.share({ title: 'CO—SAT Shorts', text: c.title, url }); else { await navigator.clipboard.writeText(url); flash(el.querySelector('.share'), 'copied'); } } catch { } };
   feed.appendChild(el); cards.push(card); io.observe(el); card.resize();
   return card;
@@ -136,6 +154,8 @@ async function fillAhead(target = 3) {
 function currentIndex() { let best = 0, bd = 1e9; for (const c of cards) { const d = Math.abs(c.el.getBoundingClientRect().top); if (d < bd) { bd = d; best = c.n; } } return best; }
 const io = new IntersectionObserver(entries => {
   for (const e of entries) { const card = cards.find(c => c.el === e.target); if (!card) continue; card.visible = e.intersectionRatio > 0.5; if (card.visible) { $('#hint').classList.add('gone'); fillAhead(3); } }
+  const idx = currentIndex();
+  for (const card of cards) { const d = card.n - idx; if (d >= -1 && d <= 1) { attachMedia(card).then(() => playState(card, card.visible)); } else detachMedia(card); if (card.attached) playState(card, card.visible); }
 }, { root: feed, threshold: [0.5] });
 
 // ---------------- canvas visuals ----------------
@@ -144,12 +164,12 @@ function skyXY(card, az, el, cx, cy, R) { const r = el >= 0 ? R * (90 - el) / 90
 function stars(card) { if (!card.state.stars) { const s = []; for (let i = 0; i < 160; i++) s.push([Math.random(), Math.random(), 0.4 + Math.random() * 1.2, Math.random() * 6.3]); card.state.stars = s; } return card.state.stars; }
 function drawStars(card, now) { const { ctx, w, h } = card; ctx.fillStyle = '#fff'; for (const s of stars(card)) { ctx.globalAlpha = 0.25 + 0.5 * Math.abs(Math.sin(now / 1500 + s[3])); ctx.fillRect(s[0] * w, s[1] * h, s[2], s[2]); } ctx.globalAlpha = 1; }
 function drawRadar(card, now) {
-  const { ctx, w, h, spec } = card; const tall = h / w > 1.6; const cx = w / 2, cy = h * (tall ? 0.30 : 0.38), R = Math.min(w, h * 0.5) * (tall ? 0.34 : 0.40);
-  drawStars(card, now);
+  const { ctx, w, h, spec } = card; const tall = h / w > 1.6; const mini = card.mini; const cx = w / 2, cy = mini ? h / 2 : h * (tall ? 0.30 : 0.38), R = mini ? w * 0.42 : Math.min(w, h * 0.5) * (tall ? 0.34 : 0.40);
+  if (!mini) drawStars(card, now); else { ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.beginPath(); ctx.arc(cx, cy, R + 4, 0, 6.2832); ctx.fill(); }
   ctx.strokeStyle = 'rgba(120,255,160,0.35)'; ctx.lineWidth = 1;
   for (const el of [0, 30, 60]) { ctx.beginPath(); ctx.arc(cx, cy, R * (90 - el) / 90, 0, 6.2832); ctx.stroke(); }
   ctx.beginPath(); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.stroke();
-  ctx.font = '10px "JetBrains Mono", monospace'; ctx.fillStyle = 'rgba(120,255,160,0.7)'; ctx.textAlign = 'center'; ctx.fillText('N', cx, cy - R - 8); ctx.fillText('S', cx, cy + R + 16); ctx.fillText('E', cx - R - 12, cy + 4); ctx.fillText('W', cx + R + 12, cy + 4);
+  if (!mini) { ctx.font = '10px "JetBrains Mono", monospace'; ctx.fillStyle = 'rgba(120,255,160,0.7)'; ctx.textAlign = 'center'; ctx.fillText('N', cx, cy - R - 8); ctx.fillText('S', cx, cy + R + 16); ctx.fillText('E', cx - R - 12, cy + 4); ctx.fillText('W', cx + R + 12, cy + 4); }
   // sweep
   const ang = (now / 2500) % 1 * Math.PI * 2; const grad = ctx.createConicGradient ? ctx.createConicGradient(ang - Math.PI / 2, cx, cy) : null;
   if (grad) { grad.addColorStop(0, 'rgba(120,255,160,0.0)'); grad.addColorStop(0.8, 'rgba(120,255,160,0.0)'); grad.addColorStop(1, 'rgba(120,255,160,0.25)'); ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 6.2832); ctx.fill(); }
@@ -162,8 +182,7 @@ function drawRadar(card, now) {
     const c = cur(s); const [x, y] = skyXY(card, c.az, c.el, cx, cy, R); const p = 0.5 + 0.5 * Math.sin(now / 300);
     ctx.strokeStyle = '#ff4d4d'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, 6 + p * 5, 0, 6.2832); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x - 12, y); ctx.lineTo(x - 6, y); ctx.moveTo(x + 6, y); ctx.lineTo(x + 12, y); ctx.moveTo(x, y - 12); ctx.lineTo(x, y - 6); ctx.moveTo(x, y + 6); ctx.lineTo(x, y + 12); ctx.stroke();
     ctx.fillStyle = '#ff4d4d'; ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
-    ctx.font = 'bold 10px "JetBrains Mono", monospace'; ctx.textAlign = 'left'; ctx.fillText(spec.viz.redact ? '█████ ' + meta(s).c : name(s).toUpperCase(), x + 14, y - 10);
-    ctx.fillStyle = 'rgba(255,77,77,0.7)'; ctx.fillText(`EL ${c.el.toFixed(1)}  AZ ${c.az.toFixed(0)}  RNG ${c.range.toFixed(0)} KM`, x + 14, y + 3);
+    if (!mini) { ctx.font = 'bold 10px "JetBrains Mono", monospace'; ctx.textAlign = 'left'; ctx.fillText(name(s).toUpperCase(), x + 14, y - 10); ctx.fillStyle = 'rgba(255,77,77,0.7)'; ctx.fillText(`EL ${c.el.toFixed(1)}  AZ ${c.az.toFixed(0)}  RNG ${c.range.toFixed(0)} KM`, x + 14, y + 3); }
   }
 }
 function project(lat, lon, lat0, lon0) { const la = lat * D2R, lo = lon * D2R, la0 = lat0 * D2R, lo0 = lon0 * D2R; const cl = Math.cos(la), dl = lo - lo0; return [cl * Math.sin(dl), Math.cos(la0) * Math.sin(la) - Math.sin(la0) * cl * Math.cos(dl), Math.sin(la0) * Math.sin(la) + Math.cos(la0) * cl * Math.cos(dl)]; }
@@ -233,9 +252,9 @@ window.addEventListener('resize', () => cards.forEach(c => c.resize()));
   const obs = guessObserver(); let first = true;
   sky = await loadSky({ observer: { lat: obs.lat, lon: obs.lon }, onProgress: m => { $('#load-note').textContent = m; }, onTick: () => {
     if (first) { first = false; (async () => {
-      $('#load-note').textContent = 'contacting Wikipedia, the Internet Archive and Hacker News…';
-      // deep link: #wiki:Title opens that article first
-      const m = decodeURIComponent(location.hash.slice(1)); if (m.startsWith('wiki:')) { wiki.queue.unshift(m.slice(5)); }
+      $('#load-note').textContent = 'gathering videos from YouTube, Wikimedia Commons and the Internet Archive…';
+      // deep link: #yt:VIDEOID opens that video first
+      const m = decodeURIComponent(location.hash.slice(1)); if (m.startsWith('yt:')) { await loadYouTube(); yt.items.unshift({ id: m.slice(3), title: 'Shared video', channel: 'YouTube', query: 'a shared link' }); }
       const c0 = await nextContent(); if (c0) addCard(c0); $('#loading').remove(); fillAhead(4);
     })(); }
     for (const c of cards) if (c.visible) c.tick();
