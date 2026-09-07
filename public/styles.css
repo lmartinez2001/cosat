@@ -23,6 +23,8 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.2em; color: v
 .wordmark { font-weight: 500; letter-spacing: 0.22em; font-size: 14px; }
 .wordmark .dash { display: inline-block; animation: pulse 3s ease-in-out infinite; }
 .wordmark .tag { font-family: var(--serif); font-style: italic; letter-spacing: 0; text-transform: none; font-size: 15px; color: var(--dim); margin-left: 8px; }
+.wordmark .shorts-link { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--fg); text-decoration: none; border: 1px solid var(--line); padding: 4px 8px; margin-left: 14px; vertical-align: middle; }
+.wordmark .shorts-link:hover { border-color: var(--accent); color: var(--accent); }
 .topbar-live { display: flex; align-items: center; gap: 10px; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: #444; box-shadow: 0 0 0 0 rgba(255,209,102,0); transition: background .4s; }
 .dot.live { background: var(--accent); animation: ping 2.4s ease-out infinite; }

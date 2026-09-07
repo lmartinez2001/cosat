@@ -18,6 +18,22 @@ Give it your birth date and where you are, and it produces a live chart:
 - **Transits** — what is rising and setting over you in the next minutes.
 - **Reality check** — the propagated ISS position vs. independent live telemetry.
 
+## Shorts
+
+`feed.html` is a vertical, snap-scrolling feed in the style of Shorts / Reels (full-screen on
+phones, a phone-shaped column with ↑↓ keys on desktop). Every card is **real content fetched
+live in the browser**, each with a link to its source and attribution:
+
+- **Wikipedia**: a random walk through the UFO / ufology / UFO-conspiracy category tree, then
+  rolling searches, so the supply is effectively unlimited (CC BY-SA 4.0, article images included).
+- **Internet Archive**: UFO documents, declassified government files and films, matched on title.
+- **Hacker News**: stories about UFOs / UAP / satellites, via the Algolia API.
+
+Under each card a live line says what is really above your head at that moment (object count,
+the nearest satellite on the radar, when it sets), computed from the same orbital elements as the
+main page. All of these sources allow cross-origin requests, so the feed works on GitHub Pages
+with no server.
+
 ## Run
 
 ```bash
