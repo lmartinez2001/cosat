@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="CO—SAT">
+  <rect width="64" height="64" rx="14" fill="#050505"/>
+  <ellipse cx="32" cy="34" rx="28.5" ry="11.5" transform="rotate(-27 32 34)" fill="none" stroke="#ECEAE4" stroke-opacity=".5" stroke-width="1.9"/>
+  <!-- knocked out first so the orbit passes behind the satellite -->
+  <g stroke="#050505" stroke-width="4" stroke-linejoin="round">
+    <rect x="6.5" y="27" width="17.5" height="10" rx="1.2"/>
+    <rect x="40" y="27" width="17.5" height="10" rx="1.2"/>
+    <rect x="23.6" y="31.3" width="4" height="1.6"/>
+    <rect x="40.4" y="31.3" width="4" height="1.6"/>
+    <rect x="26.2" y="23.6" width="11.6" height="16.4" rx="2.2"/>
+    <path d="M32 23.6v-6"/>
+  </g>
+  <g fill="#ECEAE4">
+    <rect x="6.5" y="27" width="17.5" height="10" rx="1.2"/>
+    <rect x="40" y="27" width="17.5" height="10" rx="1.2"/>
+    <rect x="23.6" y="31.3" width="4" height="1.6"/>
+    <rect x="40.4" y="31.3" width="4" height="1.6"/>
+    <rect x="26.2" y="23.6" width="11.6" height="16.4" rx="2.2"/>
+  </g>
+  <!-- a single division per wing: enough to read as a solar array, still legible at 16 px -->
+  <path d="M15.25 27v10M48.75 27v10" stroke="#050505" stroke-width="1.6"/>
+  <path d="M32 23.6v-6" stroke="#ECEAE4" stroke-width="1.8"/>
+  <circle cx="32" cy="15.6" r="3" fill="#ffd166"/>
+</svg>
