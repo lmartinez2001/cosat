@@ -80,6 +80,30 @@ Each card links to its source and carries a mini radar plus a live line about wh
 your head at that moment, computed from the same orbital elements as the main page. Only the current
 card and its neighbours hold a player; the rest are torn down as you scroll.
 
+## Failure policy
+
+Nothing in this app substitutes a plausible value for a missing one. If a request fails,
+the page says which request failed and why, and shows nothing in its place:
+
+- a failed launch-record lookup never renders as "nothing was launched on your birthday";
+- a failed pass search never renders as "no pass in the next ten days";
+- a compatibility score is not shown at all unless both satellites were actually found;
+- the Shorts feed names the sources that are unavailable instead of ending in silence;
+- the prediction worker has a timeout, so a dead worker reports an error rather than
+  leaving a spinner forever;
+- a missing value in a template renders as a visible marker and logs to the console,
+  because it means a bug rather than a fact.
+
+## Cache and versioning
+
+GitHub Pages serves every file with a ten-minute cache and no version marker, which is
+enough for a phone to keep an old copy of the JavaScript indefinitely, with module
+imports and workers resolving straight back to those stale URLs. The build therefore
+copies `public/` into `dist/` and stamps every local reference with a hash of the site
+contents: stylesheets, module imports, worker scripts, vendored libraries and data files.
+The published build id is visible at the bottom of the Chart view under Data & methodology,
+so it is easy to confirm which version a device is actually running.
+
 ## Run
 
 ```bash

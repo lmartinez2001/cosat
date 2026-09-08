@@ -9,7 +9,8 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 .short .media { position: relative; flex: 1 1 auto; min-height: 0; background: #000; }
 .short .media::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(0,0,0,.6) 0%, rgba(0,0,0,0) 22%, rgba(0,0,0,0) 100%); }
 .short .media iframe, .short .media video { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #000; object-fit: contain; }
-.short .media .unavailable { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 8px; padding: 30px; color: var(--dim); font-size: 14px; }
+.short .media .unavailable { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 10px; padding: 30px; color: var(--dim); font-size: 14px; line-height: 1.5; }
+.short .media .unavailable .mono { color: #ff7b7b; letter-spacing: .18em; }
 .short canvas.mini { position: absolute; top: max(44px, calc(env(safe-area-inset-top) + 32px)); right: 12px; width: 104px; height: 104px; display: block; pointer-events: none; z-index: 2; }
 .tap-sound { position: absolute; left: 50%; top: 34%; z-index: 3; transform: translateX(-50%); background: rgba(0,0,0,.6); color: var(--fg); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; font: inherit; font-size: 13px; cursor: pointer; backdrop-filter: blur(6px); }
 .rail button.sound.on { border-color: var(--accent); color: var(--accent); }

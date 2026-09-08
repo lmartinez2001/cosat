@@ -131,7 +131,14 @@ const ELEMENT_LINE = {
 export function seedFrom(str) { let h = 1779033703 ^ str.length; for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); } return h >>> 0; }
 export function rng(seed) { let a = seed >>> 0; return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const pick = (r, arr) => arr[Math.floor(r() * arr.length)];
-function fill(t, v) { return t.replace(/\{(\w+)\}/g, (_, k) => (v[k] ?? '?')); }
+// Every slot must be filled with a real value. A missing one is a bug, so make it
+// loud rather than printing a plausible-looking question mark.
+function fill(t, v) {
+  return t.replace(/\{(\w+)\}/g, (_, k) => {
+    if (v[k] == null || v[k] === '') { console.error('CO—SAT: no value for {' + k + '} in: ' + t); return '[missing: ' + k + ']'; }
+    return v[k];
+  });
+}
 export const dirName = az => ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round(az / 45) % 8];
 export function prettyName(n) { return n.replace(/\s*\[.*?\]\s*$/, '').replace(/\s*\(.*\)$/, '').replace(/^STARLINK-/, 'Starlink-').replace(/^ONEWEB-/, 'OneWeb-').replace(/^GALILEO-/, 'Galileo-').replace(/^NAVSTAR/, 'Navstar').replace(/^COSMOS/, 'Cosmos').replace(/^METEOSAT/, 'Meteosat').replace(/^FLOCK/, 'Flock'); }
 

@@ -274,3 +274,7 @@ body.app .hero-id button:hover { border-color: var(--fg); color: var(--fg); }
 body.app #view-chart { padding-top: 0; }
 body.app .report { padding-top: 34px; }
 @media (min-width: 900px) { body.app .hero { grid-template-columns: 1fr; height: 40vh; padding: 78px 6vw 18px; } }
+
+/* an honest failure, never a plausible-looking substitute */
+.failed { border-left: 2px solid #ff7b7b; padding: 10px 0 10px 14px; font-size: 14px; line-height: 1.5; color: #d8d5cd; }
+.failed .f-lbl { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: #ff7b7b; margin-bottom: 4px; }

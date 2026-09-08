@@ -6,8 +6,11 @@ import { loadSky, guessObserver, prettyName, dirName, OWNER_SHORT, SITE_SHORT, D
 const $ = s => document.querySelector(s);
 const feed = $('#feed');
 const R_EARTH = 6371, MU = 398600.4418;
-let sky = null, coast = null; const cards = []; let cardSeq = 0; let believedTotal = 0;
-fetch('vendor/coastlines.json').then(r => r.json()).then(d => { coast = d; }).catch(() => { });
+let sky = null, coast = null; const cards = []; let cardSeq = 0;
+const state = { noticeShown: false };
+fetch('vendor/coastlines.json').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+  .then(d => { coast = d; })
+  .catch(e => { sourceErrors.set('coastlines', String(e && e.message || e)); });
 
 // ---------------- helpers ----------------
 const rnd = a => a[Math.floor(Math.random() * a.length)];
@@ -40,14 +43,26 @@ const believes = i => (meta(i).c * 7919) % 4200 + 37, doubts = i => (meta(i).c *
 const MAX_SECONDS = 30;
 const fmtDur = s => s < 60 ? Math.round(s) + 's' : Math.floor(s / 60) + ':' + String(Math.round(s % 60)).padStart(2, '0');
 const enc = encodeURIComponent;
-async function getJSON(url) { try { const r = await fetch(url, { headers: { Accept: 'application/json' } }); if (!r.ok) return null; return await r.json(); } catch { return null; } }
+const sourceErrors = new Map();          // source -> why it last failed, so the feed can say so
+async function getJSON(url, source) {
+  try {
+    const r = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    if (source) sourceErrors.delete(source);
+    return j;
+  } catch (e) {
+    if (source) sourceErrors.set(source, String(e && e.message || e));
+    return null;
+  }
+}
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const strip = h => String(h || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 const trunc = (t, n) => t.length <= n ? t : t.slice(0, n).replace(/\s+\S*$/, '') + '…';
 
 const yt = { items: [], loaded: false, all: [] };
 async function loadYouTube() {
-  if (yt.loaded || Date.now() < (yt.retryAt || 0)) return; const d = await getJSON(sky.STATIC ? 'data/videos.json' : 'api/videos');
+  if (yt.loaded || Date.now() < (yt.retryAt || 0)) return; const d = await getJSON(sky.STATIC ? 'data/videos.json' : 'api/videos', 'YouTube pool');
   if (!d) { yt.retryAt = Date.now() + 20000; return; } // local server may still be building the pool; try again later
   yt.all = (d.videos || []).filter(v => v.id && v.title && v.seconds > 0 && v.seconds < MAX_SECONDS);
   yt.items = shuffle(yt.all.slice()); yt.loaded = true;
@@ -62,7 +77,7 @@ const commons = { queries: ['UAP', 'UFO', 'flying saucer', 'unidentified aerial'
 async function commonsCard() {
   for (let tries = 0; tries < 3 && !commons.items.length; tries++) {
     const q = commons.queries[commons.qi % commons.queries.length]; commons.qi++; const off = commons.offsets[q] || 0;
-    const d = await getJSON(`https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${enc(q + ' filemime:video')}&gsrnamespace=6&gsrlimit=25&gsroffset=${off}&prop=videoinfo&viprop=url|derivatives|mime|size|dimensions|extmetadata&viurlwidth=900&viextmetadatafilter=ImageDescription|LicenseShortName|Artist&format=json&origin=*`);
+    const d = await getJSON(`https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${enc(q + ' filemime:video')}&gsrnamespace=6&gsrlimit=25&gsroffset=${off}&prop=videoinfo&viprop=url|derivatives|mime|size|dimensions|extmetadata&viurlwidth=900&viextmetadatafilter=ImageDescription|LicenseShortName|Artist&format=json&origin=*`, 'Wikimedia Commons');
     commons.offsets[q] = off + 25; const pages = Object.values(d?.query?.pages || {});
     if (!pages.length) commons.offsets[q] = 0;
     // keep only clips we know are under the limit; Commons reports exact durations
@@ -158,9 +173,30 @@ function addCard(c) {
 let filling = false;
 async function fillAhead(target = 3) {
   if (filling) return; filling = true;
-  try { while (cards.length && cardSeq - currentIndex() < target) { const c = await nextContent(); if (!c) break; addCard(c); } } finally { filling = false; }
+  try {
+    while (cardSeq - currentIndex() < target) {
+      const c = await nextContent();
+      if (!c) { addNoticeCard(); break; }
+      addCard(c);
+    }
+  } finally { filling = false; }
 }
-function currentIndex() { let best = 0, bd = 1e9; for (const c of cards) { const d = Math.abs(c.el.getBoundingClientRect().top); if (d < bd) { bd = d; best = c.n; } } return best; }
+// No more clips: say whether that is because the sources failed or because we ran out.
+function addNoticeCard() {
+  if (state.noticeShown) return; state.noticeShown = true;
+  $('#hint')?.classList.add('gone');
+  const why = [...sourceErrors.entries()].map(([k, v]) => `${k}: ${v}`);
+  const el = document.createElement('section'); el.className = 'short'; el.dataset.source = 'notice';
+  el.innerHTML = `<div class="media"><div class="unavailable">
+      <div class="mono">${why.length ? 'SOURCES UNAVAILABLE' : 'END OF THE REEL'}</div>
+      <div>${why.length
+        ? 'No more clips could be loaded, because ' + esc(why.join('; ')) + '. Nothing is being shown in their place. Pull down to reload once you are back online.'
+        : 'Every clip under thirty seconds that these sources hold has been shown. Reload to shuffle them again.'}</div>
+    </div></div>
+    <div class="top"><span><span class="brand">CO—SAT Shorts · </span>end</span><span class="stamp">Real videos</span></div>`;
+  feed.appendChild(el);
+}
+function currentIndex() { if (!cards.length) return 0; let best = 0, bd = 1e9; for (const c of cards) { const d = Math.abs(c.el.getBoundingClientRect().top); if (d < bd) { bd = d; best = c.n; } } return best; }
 const io = new IntersectionObserver(entries => {
   for (const e of entries) { const card = cards.find(c => c.el === e.target); if (!card) continue; card.visible = e.intersectionRatio > 0.5; if (card.visible) { $('#hint').classList.add('gone'); fillAhead(3); } }
   const idx = currentIndex();
@@ -264,7 +300,9 @@ window.addEventListener('resize', () => cards.forEach(c => c.resize()));
       $('#load-note').textContent = 'finding clips under 30 seconds on YouTube and Wikimedia Commons…';
       // deep link: #yt:VIDEOID opens that video first
       const m = decodeURIComponent(location.hash.slice(1)); if (m.startsWith('yt:')) { await loadYouTube(); yt.items.unshift({ id: m.slice(3), title: 'Shared clip', channel: '', seconds: 0, query: 'a shared link' }); }
-      const c0 = await nextContent(); if (c0) addCard(c0); $('#loading').remove(); fillAhead(4);
+      const c0 = await nextContent();
+      $('#loading').remove();
+      if (c0) { addCard(c0); fillAhead(4); } else addNoticeCard();
     })(); }
     for (const c of cards) if (c.visible) c.tick();
   } });

@@ -2,6 +2,7 @@ import { Globe } from './globe.js';
 import { Wheel, sep } from './wheel.js';
 import * as astro from './astro.js';
 const D2R = Math.PI / 180;
+const pageLoadedAt = Date.now();
 import { buildReport, natalCopy, CATEGORIES, prettyName, dirName } from './report.js';
 import { initFeatures, buildRitual, prefillCompat, applyCompatLink } from './features.js';
 
@@ -52,7 +53,8 @@ async function readSky(silent) {
   S.name = f.name; S.birth = { date: f.bdate, time: f.btime };
   if (f.lat !== S.observer.lat || f.lon !== S.observer.lon) { S.observer = { lat: f.lat, lon: f.lon }; globe.setObserver(f.lat, f.lon); S.worker?.postMessage({ type: 'observer', observer: S.observer }); S.fa = S.fb = null; }
   if (!silent) { $('#submit').disabled = true; $('#submit').textContent = 'Reading…'; }
-  try { S.natal = await fetchNatal(f.bdate); } catch { S.natal = null; }
+  try { S.natal = await fetchNatal(f.bdate); S.natalError = null; }
+  catch (e) { S.natal = null; S.natalError = String(e && e.message || e); }
   S.lastReportBuild = 0; S.hi.rising = null;
   const show = () => {
     if (!S.cur || !S.stats) return setTimeout(show, 150);   // wait for the first propagation tick
@@ -391,6 +393,11 @@ function renderReport(r, nc, el) {
   const mil = S.stats ? S.stats.above[S.groupIds.indexOf('military')] : 0;
   $('#shadow').textContent = `${mil} military satellite${mil === 1 ? '' : 's'} ${mil === 1 ? 'is' : 'are'} above you right now. ${mil ? 'They are not thinking about you. Probably.' : 'Enjoy it.'}`;
   // natal
+  if (S.natalError) {
+    $('#natal-body').innerHTML = `<div class="failed"><span class="f-lbl">Could not load</span>The launch records for your birthday did not load: ${esc(S.natalError)}. Nothing is being shown in their place. Reload to try again.</div>`;
+    buildMortality();
+    return;
+  }
   const objs = nc.list || [];
   let html = `<p class="serif">${esc(nc.lead)}</p>`;
   if (objs.length) html += `<p class="fine">Catalogued launches from ${nc.main ? nc.main.launch : ''} (source: CelesTrak SATCAT, ${S.natal.totalCatalogued.toLocaleString()} objects). Rocket bodies and debris count too. They were also there.</p>` + objs.slice(0, 12).map((o, i) => `<div class="natal-obj"><span class="idx">${String(i + 1).padStart(2, '0')}</span><span>${esc(prettyName(o.name))} <span class="dim">· ${esc(o.typeName)} · ${esc(o.ownerName)} · from ${esc(o.siteName)}</span></span><span class="st ${o.decay ? '' : 'alive'}">${o.decay ? 'decayed ' + o.decay : 'still in orbit'}</span></div>`).join('') + (objs.length > 12 ? `<p class="fine natal-more">…and ${objs.length - 12} more, mostly debris. Same.</p>` : '');
@@ -448,21 +455,36 @@ async function refreshStatus() {
     $('#datastate').textContent = `${(st.catalog.count || S.N).toLocaleString()} objects · elements ≤ ${oldest.toFixed(1)} h old`;
     $('#livedot').classList.toggle('stale', oldest > 6);
     const rows = Object.entries(st.groups).map(([id, g]) => `<tr><td>${esc(g.label)}</td><td>${g.count.toLocaleString()}</td><td>${g.fetchedAt ? ago(st.now - g.fetchedAt) + ' ago' : '—'}</td><td>${g.nextRefreshAt ? 'in ' + ago(g.nextRefreshAt - st.now) : 'pending'}</td><td>${g.lastError ? esc(g.lastError) : g.cooldownUntil ? 'backing off' : 'ok'}</td></tr>`).join('');
-    $('#method-body').innerHTML = `<table><tr><th>CelesTrak group</th><th>objects</th><th>fetched</th><th>next fetch</th><th>state</th></tr>${rows}<tr><td>SATCAT (launch dates)</td><td>${(st.satcat.bytes / 1e6).toFixed(1)} MB</td><td>${st.satcat.fetchedAt ? ago(st.now - st.satcat.fetchedAt) + ' ago' : '—'}</td><td>${st.satcat.nextRefreshAt ? 'in ' + ago(st.satcat.nextRefreshAt - st.now) : 'pending'}</td><td>${st.satcat.lastError ? esc(st.satcat.lastError) : 'ok'}</td></tr></table><p>Upstream requests are serialized with ${st.spacingMs / 1000} s spacing, cached on disk for ${st.gpTtlMs / 3600000} h (elements) / ${st.satcatTtlMs / 3600000} h (SATCAT), served with ETag + max-age so reloads cost nothing, and exponentially backed off on any error. ISS telemetry is fetched at most once per 30 s server-side and once per minute per open report.</p>${STATIC ? '<p>This copy is hosted statically: a scheduled GitHub Action does the fetching every 3 hours and publishes the files above; your browser only reads them (plus one ISS telemetry request per minute).</p>' : ''}`;
-  } catch { }
+    $('#method-body').innerHTML = `<table><tr><th>CelesTrak group</th><th>objects</th><th>fetched</th><th>next fetch</th><th>state</th></tr>${rows}<tr><td>SATCAT (launch dates)</td><td>${(st.satcat.bytes / 1e6).toFixed(1)} MB</td><td>${st.satcat.fetchedAt ? ago(st.now - st.satcat.fetchedAt) + ' ago' : '—'}</td><td>${st.satcat.nextRefreshAt ? 'in ' + ago(st.satcat.nextRefreshAt - st.now) : 'pending'}</td><td>${st.satcat.lastError ? esc(st.satcat.lastError) : 'ok'}</td></tr></table><p>Upstream requests are serialized with ${st.spacingMs / 1000} s spacing, cached on disk for ${st.gpTtlMs / 3600000} h (elements) / ${st.satcatTtlMs / 3600000} h (SATCAT), served with ETag + max-age so reloads cost nothing, and exponentially backed off on any error. ISS telemetry is fetched at most once per 30 s server-side and once per minute per open report.</p><p>Build <b>${esc(buildId())}</b>, loaded ${esc(new Date(pageLoadedAt).toLocaleString())}. Every file is versioned by content, so a reload always gets the current one.</p>${STATIC ? '<p>This copy is hosted statically: a scheduled GitHub Action does the fetching every 3 hours and publishes the files above; your browser only reads them (plus one ISS telemetry request per minute).</p>' : ''}`;
+  } catch (e) {
+    $('#datastate').textContent = 'data status unavailable';
+    $('#method-body').innerHTML = `<div class="failed"><span class="f-lbl">Could not load</span>The freshness report did not load: ${esc(String(e && e.message || e))}. The positions on this page still come from the elements already downloaded; only this table is missing.</div>`;
+  }
   setTimeout(refreshStatus, 5 * 60000);
 }
+function buildId() { return document.querySelector('meta[name="cosat-build"]')?.content || 'dev'; }
 function ago(ms) { const m = Math.round(Math.abs(ms) / 60000); return m < 1 ? 'now' : m < 60 ? m + ' min' : (Math.abs(ms) / 3600000).toFixed(1) + ' h'; }
 
 
 // ---------- natal lookup: server endpoint, or static per-year shards ----------
 const natalShardCache = new Map();
 async function natalShard(year) {
-  if (!natalShardCache.has(year)) natalShardCache.set(year, fetch(`data/natal/${year}.json`).then(r => r.ok ? r.json() : null).catch(() => null));
+  // A 404 means that year has no catalogued launches, which is a real answer.
+  // Anything else is a failure and must not be mistaken for "nothing was launched".
+  if (!natalShardCache.has(year)) natalShardCache.set(year, (async () => {
+    const r = await fetch(`data/natal/${year}.json`);
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error(`launch records for ${year} did not load (HTTP ${r.status})`);
+    return r.json();
+  })().catch(e => { natalShardCache.delete(year); throw e; }));
   return natalShardCache.get(year);
 }
 async function fetchNatal(date) {
-  if (!STATIC) return (await fetch('api/natal?date=' + date)).json();
+  if (!STATIC) {
+    const r = await fetch('api/natal?date=' + date);
+    if (!r.ok) throw new Error(`launch records did not load (HTTP ${r.status})`);
+    return r.json();
+  }
   const base = new Date(date + 'T00:00:00Z'); let total = 0, fetchedAt = null;
   for (let d = 0; d <= 400; d++) for (const sign of d === 0 ? [0] : [-1, 1]) {
     const day = new Date(base.getTime() + sign * d * 86400000).toISOString().slice(0, 10);

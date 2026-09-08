@@ -17,17 +17,38 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 // ---------- prediction worker, promise-wrapped ----------
 let worker = null, seq = 0; const pending = new Map();
+const ASK_TIMEOUT_MS = 12000;            // the searches take milliseconds; this is a dead-worker guard
+function failAllPending(reason) {
+  for (const [, p] of pending) p.reject(new Error(reason));
+  pending.clear();
+}
 function predictor() {
   if (!worker) {
     worker = new Worker('predict.js');
-    worker.onmessage = e => { const { id, result, error } = e.data; const p = pending.get(id); if (!p) return; pending.delete(id); error ? p.reject(new Error(error)) : p.resolve(result); };
+    worker.onmessage = e => {
+      const { id, result, error } = e.data; const p = pending.get(id); if (!p) return;
+      clearTimeout(p.timer); pending.delete(id);
+      error ? p.reject(new Error(error)) : p.resolve(result);
+    };
+    // A worker that dies must surface as an error, never as a request that hangs forever.
+    worker.onerror = e => { worker = null; failAllPending('the prediction worker stopped: ' + (e.message || 'unknown error')); };
+    worker.onmessageerror = () => { worker = null; failAllPending('the prediction worker sent an unreadable reply'); };
   }
   return worker;
 }
 function ask(type, payload) {
   const id = ++seq;
-  return new Promise((resolve, reject) => { pending.set(id, { resolve, reject }); predictor().postMessage({ id, type, payload }); });
+  return new Promise((resolve, reject) => {
+    let w;
+    try { w = predictor(); } catch (e) { return reject(new Error('the prediction worker could not start: ' + (e && e.message || e))); }
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error('the ' + type + ' calculation timed out after ' + (ASK_TIMEOUT_MS / 1000) + ' s')); }, ASK_TIMEOUT_MS);
+    pending.set(id, { resolve, reject, timer });
+    try { w.postMessage({ id, type, payload }); }
+    catch (e) { clearTimeout(timer); pending.delete(id); reject(new Error('could not reach the prediction worker: ' + (e && e.message || e))); }
+  });
 }
+// exposed so the worker can be exercised in testing
+export function _predictorHandle() { return worker; }
 
 // ---------- shared context, injected by app.js ----------
 let ctx = null;                       // { S, prettyName, dirName, ownerShort, fetchNatal }
@@ -142,11 +163,17 @@ function renderGuardianChoices() {
 
 async function requestPasses() {
   const g = guardianObj(); if (!g) return;
-  const box = $('#pass-main'); box.innerHTML = '<div class="pass-none">Searching the next week of orbits…</div>';
+  const box = $('#pass-main'); box.innerHTML = '<div class="pass-none">Searching the next ten days of orbits…</div>';
   const observer = { lat: ctx.S.observer.lat, lon: ctx.S.observer.lon, alt: 0 };
-  let res = await ask('passes', { obj: g, observer, days: 10, minEl: 10, needVisible: true, limit: 6 }).catch(() => null);
-  let visibleOnly = true;
-  if (!res || !res.passes.length) { res = await ask('passes', { obj: g, observer, days: 3, minEl: 10, needVisible: false, limit: 6 }).catch(() => null); visibleOnly = false; }
+  let res = null, visibleOnly = true;
+  state.passError = null;
+  try {
+    res = await ask('passes', { obj: g, observer, days: 10, minEl: 10, needVisible: true, limit: 6 });
+    if (!res.passes.length) { res = await ask('passes', { obj: g, observer, days: 3, minEl: 10, needVisible: false, limit: 6 }); visibleOnly = false; }
+  } catch (e) {
+    // an orbit search that failed is not the same as an orbit that never comes over
+    state.passError = String(e && e.message || e); res = null;
+  }
   state.passes = res ? res.passes : []; state.visibleOnly = visibleOnly;
   state.nextPass = state.passes[0] || null;
   renderPass(); try { drawArc(); } catch { } renderPassList();
@@ -169,6 +196,10 @@ function brightnessHint(g, pass) {
 }
 function renderPass() {
   const box = $('#pass-main'), g = guardianObj();
+  if (state.passError) {
+    box.innerHTML = `<div class="failed"><span class="f-lbl">Could not compute</span>The pass search for ${esc(ctx.prettyName(g.n))} failed: ${esc(state.passError)}. No times are being shown, because we do not have any. Reload to try again.</div>`;
+    $('#teaser').hidden = true; setBadge(null); return;
+  }
   if (!state.nextPass) {
     const o = state.guardian.i * 7, el = ctx.S.cur[o + 4], alt = ctx.S.cur[o + 2];
     const geo = alt > 30000;
@@ -307,62 +338,121 @@ function renderLogbook() {
 }
 
 // ---------- point the phone at it ----------
+//
+// Aim is the direction the BACK of the phone points, which is what you instinctively
+// aim at the sky. Rotating the device about the vertical axis is handled by the
+// compass; rotating the screen between portrait and landscape is not a factor,
+// because the back-camera axis is the device z axis and screen rotation happens
+// about that same axis.
+//
+// iOS gives a true-north compass heading on the standard deviceorientation event.
+// Android gives an absolute alpha on deviceorientationabsolute. Without one of those
+// there is no north reference at all, and we say so rather than pointing at nothing.
 let aimHandler = null;
+
+function aimSupport() {
+  const secure = window.isSecureContext;
+  const hasEvent = typeof window.DeviceOrientationEvent !== 'undefined';
+  const needsPermission = hasEvent && typeof window.DeviceOrientationEvent.requestPermission === 'function';
+  const coarse = window.matchMedia('(pointer: coarse)').matches;
+  return { secure, hasEvent, needsPermission, coarse };
+}
+
 async function toggleAiming() {
   if (state.aiming) return stopAiming();
-  const DOE = window.DeviceOrientationEvent;
-  if (!DOE) { $('#aim').hidden = false; $('#aim-note').textContent = 'This device has no orientation sensors. Use the compass direction above, then press “I saw it”.'; return; }
-  try { if (DOE.requestPermission) { const r = await DOE.requestPermission(); if (r !== 'granted') throw new Error('denied'); } }
-  catch { $('#aim').hidden = false; $('#aim-note').textContent = 'Orientation access was declined. Use the compass direction above instead.'; return; }
-  state.aiming = true; $('#aim').hidden = false; $('#aim-btn').textContent = '◎ stop aiming';
+  const box = $('#aim'), note = $('#aim-note');
+  const sup = aimSupport();
+  box.hidden = false;
+  const fail = msg => { note.textContent = msg; $('#aim-canvas').hidden = true; };
+
+  if (!sup.hasEvent) return fail('This device does not report its orientation, so nothing can aim it. Use the compass direction and elevation above.');
+  if (!sup.secure) return fail('Orientation sensors only work over HTTPS. Open the published site rather than a local copy.');
+  if (sup.needsPermission) {
+    try {
+      const r = await window.DeviceOrientationEvent.requestPermission();
+      if (r !== 'granted') return fail('Motion and orientation access was declined, so the phone cannot tell where it is pointing. Turn it on in Settings, Safari, Motion & Orientation Access, then try again.');
+    } catch (e) { return fail('Could not request orientation access: ' + (e && e.message || e) + '. Use the compass direction above instead.'); }
+  } else if (!sup.coarse) {
+    return fail('This looks like a desktop browser with no compass. Open the site on your phone to aim it, or use the compass direction and elevation above.');
+  }
+
+  $('#aim-canvas').hidden = false;
+  state.aiming = true; state.aimLogged = false; state.aimSamples = 0;
+  $('#aim-btn').textContent = '◎ stop aiming';
+  note.textContent = 'Hold the phone up and point the back of it at the sky…';
   aimHandler = ev => onOrientation(ev);
   window.addEventListener('deviceorientationabsolute', aimHandler, true);
   window.addEventListener('deviceorientation', aimHandler, true);
+  // if no usable reading arrives, say so instead of leaving a dead dial
+  clearTimeout(state.aimTimeout);
+  state.aimTimeout = setTimeout(() => {
+    if (state.aiming && !state.aimSamples) fail('No compass reading is coming through, so there is no way to tell which way you are facing. Use the compass direction above.');
+  }, 3000);
 }
 function stopAiming() {
-  state.aiming = false; $('#aim-btn').textContent = '◎ Point my phone at it';
+  state.aiming = false; clearTimeout(state.aimTimeout);
+  $('#aim-btn').textContent = '◎ Point my phone at it';
   window.removeEventListener('deviceorientationabsolute', aimHandler, true);
   window.removeEventListener('deviceorientation', aimHandler, true);
   $('#aim').hidden = true;
 }
-// Where is the back of the phone pointing? Rotate the device axis into the world frame.
+
+// Rotation from device axes to world axes is R = Rz(alpha)Rx(beta)Ry(gamma), with the
+// world frame x=east, y=north, z=up. The back of the phone is device (0, 0, -1), so the
+// aim vector is minus the third column of R.
 function deviceAim(ev) {
-  const a = (ev.alpha || 0) * D2R, b = (ev.beta || 0) * D2R, g = (ev.gamma || 0) * D2R;
+  const heading = typeof ev.webkitCompassHeading === 'number' && isFinite(ev.webkitCompassHeading) ? ev.webkitCompassHeading : null;
+  // alpha counts anticlockwise from north; a compass heading counts clockwise, hence 360 - heading
+  const alphaDeg = heading != null ? 360 - heading : (ev.absolute === true && typeof ev.alpha === 'number' ? ev.alpha : null);
+  if (alphaDeg == null || typeof ev.beta !== 'number' || typeof ev.gamma !== 'number') return null;
+  const a = alphaDeg * D2R, b = ev.beta * D2R, g = ev.gamma * D2R;
   const cA = Math.cos(a), sA = Math.sin(a), cB = Math.cos(b), sB = Math.sin(b), cG = Math.cos(g), sG = Math.sin(g);
-  // R = Rz(alpha)Rx(beta)Ry(gamma) applied to the outward camera axis (0,0,-1)
-  const x = -(cA * sG - sA * sB * cG), y = -(sA * sG + cA * sB * cG), z = -(cB * cG);
-  const el = Math.asin(Math.max(-1, Math.min(1, -z))) / D2R;
-  let az = Math.atan2(x, y) / D2R;
-  if (typeof ev.webkitCompassHeading === 'number') az = ev.webkitCompassHeading + Math.atan2(x, y) / D2R - (360 - (ev.alpha || 0));
-  return { az: ((az % 360) + 360) % 360, el };
+  const east = -(cA * sG + sA * sB * cG);
+  const north = -(sA * sG - cA * sB * cG);
+  const up = -(cB * cG);
+  const az = ((Math.atan2(east, north) / D2R) % 360 + 360) % 360;
+  const el = Math.asin(Math.max(-1, Math.min(1, up))) / D2R;
+  return { az, el, heading };
 }
 function angularGap(az1, el1, az2, el2) {
   const c = Math.sin(el1 * D2R) * Math.sin(el2 * D2R) + Math.cos(el1 * D2R) * Math.cos(el2 * D2R) * Math.cos((az1 - az2) * D2R);
   return Math.acos(Math.max(-1, Math.min(1, c))) / D2R;
 }
 function onOrientation(ev) {
-  const g = guardianObj(); if (!g) return;
+  const g = guardianObj(); if (!g || !state.aiming) return;
+  const aim = deviceAim(ev);
+  const note = $('#aim-note');
+  if (!aim) {
+    note.textContent = 'Your phone reports its tilt but not which way is north, so aiming is not possible here. Use the compass direction above.';
+    $('#aim-canvas').hidden = true; return;
+  }
+  state.aimSamples++;
   const o = state.guardian.i * 7, cur = ctx.S.cur;
   const target = { az: cur[o + 3], el: cur[o + 4] };
-  const aim = deviceAim(ev);
+  if (cur[o + 2] < 0) { note.textContent = `${ctx.prettyName(g.n)} could not be propagated just now, so there is nothing to aim at.`; return; }
   const gap = angularGap(aim.az, aim.el, target.az, target.el);
   drawAim(aim, target, gap);
-  const note = $('#aim-note');
-  if (target.el < 0) note.textContent = `${ctx.prettyName(g.n)} is ${Math.round(-target.el)}° below your horizon right now. Come back at the pass time.`;
-  else if (gap < 12) { note.textContent = `ON TARGET · ${Math.round(gap)}° off. That is it.`; if (!state.aimLogged) { state.aimLogged = true; logSighting('aim'); } }
-  else note.textContent = `${Math.round(gap)}° off · aim ${gap > 60 ? 'well ' : ''}${aim.el < target.el ? 'higher' : 'lower'} and toward ${ctx.dirName(target.az)}`;
+  if (target.el < 0) { note.textContent = `${ctx.prettyName(g.n)} is ${Math.round(-target.el)}° below your horizon right now. Come back at the pass time.`; return; }
+  if (gap < 12) {
+    note.textContent = `ON TARGET · ${Math.round(gap)}° off. That is it.`;
+    if (!state.aimLogged) { state.aimLogged = true; logSighting('aim'); }
+    return;
+  }
+  const higher = aim.el < target.el;
+  note.textContent = `${Math.round(gap)}° off · aim ${gap > 60 ? 'well ' : ''}${higher ? 'higher' : 'lower'}, toward ${ctx.dirName(target.az)} (${Math.round(target.az)}°, ${Math.round(target.el)}° up)`;
 }
 function drawAim(aim, target, gap) {
   const c = $('#aim-canvas'); const dpr = Math.min(2, devicePixelRatio || 1), w = c.clientWidth;
   if (w < 40) return;
   c.width = c.height = w * dpr; const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, w, w);
   const cx = w / 2, cy = w / 2, R = w * 0.44;
-  const place = (az, el) => { const r = R * (90 - Math.max(-10, el)) / 100; const a = az * D2R; return [cx - r * Math.sin(a), cy - r * Math.cos(a)]; };
+  const place = (az, el) => { const r = R * (90 - Math.max(-10, Math.min(90, el))) / 100; const a = az * D2R; return [cx - r * Math.sin(a), cy - r * Math.cos(a)]; };
   x.strokeStyle = 'rgba(236,234,228,.25)'; x.beginPath(); x.arc(cx, cy, R, 0, 6.2832); x.stroke();
   x.beginPath(); x.arc(cx, cy, R * 0.55, 0, 6.2832); x.stroke();
   x.font = '10px "JetBrains Mono", monospace'; x.fillStyle = '#8a877f'; x.textAlign = 'center';
   x.fillText('N', cx, cy - R - 6); x.fillText('S', cx, cy + R + 13); x.fillText('E', cx - R - 10, cy + 4); x.fillText('W', cx + R + 10, cy + 4);
   const [tx, ty] = place(target.az, target.el), [ax, ay] = place(aim.az, aim.el);
+  x.strokeStyle = 'rgba(236,234,228,.3)'; x.setLineDash([2, 4]); x.beginPath(); x.moveTo(ax, ay); x.lineTo(tx, ty); x.stroke(); x.setLineDash([]);
   x.strokeStyle = gap < 12 ? '#8de0a5' : '#ffd166'; x.lineWidth = 2; x.beginPath(); x.arc(tx, ty, 9, 0, 6.2832); x.stroke();
   x.fillStyle = x.strokeStyle; x.fillRect(tx - 2, ty - 2, 4, 4);
   x.strokeStyle = '#7fd6ff'; x.lineWidth = 1.5; x.beginPath(); x.moveTo(ax - 7, ay); x.lineTo(ax + 7, ay); x.moveTo(ax, ay - 7); x.lineTo(ax, ay + 7); x.stroke();
@@ -386,7 +476,7 @@ export function buildMortality() {
 
   html += `<p class="decay-head">${esc(ctx.prettyName(g.n))} is falling out of the sky.</p>`;
   html += `<div class="decay-grid">
-      <div><div class="dk">Altitude now</div><div class="dv">${alt > 0 ? Math.round(alt) + ' km' : '—'}</div><div class="ds">measured from its current orbit</div></div>
+      <div><div class="dk">Altitude now</div><div class="dv">${alt > 0 ? Math.round(alt) + ' km' : 'unavailable'}</div><div class="ds">${alt > 0 ? 'measured from its current orbit' : 'its orbit could not be propagated just now'}</div></div>
       <div><div class="dk">Sinking</div><div class="dv">${decay.rateText}</div><div class="ds">${esc(decay.method)}</div></div>
       <div><div class="dk">Time left</div><div class="dv">${decay.lifeText}</div><div class="ds">${esc(decay.lifeNote)}</div></div>
     </div>
@@ -480,10 +570,19 @@ async function onCompatSubmit(e) {
 async function renderCompat(a, b) {
   const out = $('#compat-out');
   out.innerHTML = '<p class="fine">Looking up what was launched on both birthdays…</p>';
-  const [na, nb] = await Promise.all([ctx.fetchNatal(a.date), ctx.fetchNatal(b.date)]);
+  let na, nb;
+  try { [na, nb] = await Promise.all([ctx.fetchNatal(a.date), ctx.fetchNatal(b.date)]); }
+  catch (e) {
+    out.innerHTML = `<div class="failed"><span class="f-lbl">Could not load</span>The launch records did not load: ${esc(String(e && e.message || e))}. No score is being shown, because there is nothing real to base one on. Reload to try again.</div>`;
+    return;
+  }
   const pick = n => (n && n.objects && n.objects.length) ? (n.objects.find(o => o.type === 'PAY') || n.objects[0]) : null;
   const oa = pick(na), ob = pick(nb);
-  if (!oa || !ob) { out.innerHTML = '<p class="fine">Nothing was launched anywhere near one of those dates. Orbitally speaking, one of you is unaccounted for.</p>'; return; }
+  if (!oa || !ob) {
+    const who = !oa && !ob ? 'either date' : `${esc(!oa ? a.name : b.name)}’s date`;
+    out.innerHTML = `<p class="fine">Nothing was launched within a year of ${who}, so there is no satellite to compare. Orbitally speaking, someone here is unaccounted for.</p>`;
+    return;
+  }
   const liveA = liveRecordFor(oa.norad), liveB = liveRecordFor(ob.norad);
   const axes = [];
 
@@ -498,13 +597,16 @@ async function renderCompat(a, b) {
       note: `One orbit takes ${Math.round(pa)} minutes for ${a.name}, ${Math.round(pb)} for ${b.name}. ${isFinite(synodic) && synodic < 1e5 ? `You realign every ${synodic < 1440 ? Math.round(synodic) + ' minutes' : Math.round(synodic / 1440) + ' days'}.` : 'You almost never realign.'} ${off < 0.06 ? 'That is a resonance. You keep the same time without trying.' : off < 0.2 ? 'Close to a simple ratio: your rhythms rhyme, roughly.' : 'No resonance. One of you is always arriving as the other leaves.'}` });
   }
   // Alignment: inclination always, true plane angle when both are still up there.
-  let planeAngle = null;
-  if (liveA && liveB) { const g = await ask('planes', { a: liveA.o, b: liveB.o }).catch(() => null); if (g) planeAngle = g.angle; }
+  let planeAngle = null, geomError = null;
+  if (liveA && liveB) {
+    try { planeAngle = (await ask('planes', { a: liveA.o, b: liveB.o })).angle; }
+    catch (e) { geomError = String(e && e.message || e); }
+  }
   const incGap = (oa.inc != null && ob.inc != null) ? Math.abs(oa.inc - ob.inc) : null;
   const angle = planeAngle != null ? planeAngle : incGap;
   if (angle != null) {
     axes.push({ key: 'Alignment', score: Math.round(100 * (1 - Math.min(angle, 180) / 180)), value: angle.toFixed(1) + '°',
-      note: planeAngle != null ? `The real angle between your two orbital planes is ${angle.toFixed(1)}°. Two planes that are not identical always intersect, so you cross twice every revolution, whether or not you are there at the same moment.` : `Your orbits are inclined ${oa.inc}° and ${ob.inc}° to the equator, ${angle.toFixed(1)}° apart. One of the two is no longer in orbit, so this is the last angle it held.` });
+      note: geomError ? `Inclinations are ${oa.inc}° and ${ob.inc}°, ${angle.toFixed(1)}° apart. The exact angle between the planes could not be computed: ${esc(geomError)}.` : planeAngle != null ? `The real angle between your two orbital planes is ${angle.toFixed(1)}°. Two planes that are not identical always intersect, so you cross twice every revolution, whether or not you are there at the same moment.` : `Your orbits are inclined ${oa.inc}° and ${ob.inc}° to the equator, ${angle.toFixed(1)}° apart. One of the two is no longer in orbit, so this is the last angle it held.` });
   }
   // Altitude: how far apart you live.
   const aa = meanAlt(oa), ab = meanAlt(ob);
@@ -534,7 +636,11 @@ async function renderCompat(a, b) {
           : 'Geometrically, this is a plane change. Plane changes are the most expensive manoeuvre in spaceflight. Not impossible. Expensive.';
 
   let approach = null;
-  if (liveA && liveB && oa.norad !== ob.norad) approach = await ask('approach', { a: liveA.o, b: liveB.o, hours: 72 }).catch(() => null);
+  let approachError = null;
+  if (liveA && liveB && oa.norad !== ob.norad) {
+    try { approach = await ask('approach', { a: liveA.o, b: liveB.o, hours: 72 }); }
+    catch (e) { approachError = String(e && e.message || e); }
+  }
 
   out.innerHTML = `
     <div class="compat-score">
@@ -547,6 +653,7 @@ async function renderCompat(a, b) {
       <div><div class="cp-who">${esc(b.name)} · ${esc(b.date)}</div><div class="cp-sat">${esc(ctx.prettyName(ob.name))}</div><div class="cp-meta">${esc(ob.ownerName)} · ${esc(ob.launch)}${ob.decay ? ' · re-entered ' + esc(ob.decay) : ' · still in orbit'}</div></div>
     </div>
     <div class="compat-axes">${axes.map(x => `<div class="ax"><div class="ax-top"><span class="ax-name">${esc(x.key)}</span><span class="ax-val">${esc(x.value)}</span></div><div class="ax-bar"><i style="width:${x.score}%"></i></div><div class="ax-note">${x.note}</div></div>`).join('')}</div>
+    ${approachError ? `<p class="fine" style="margin-top:14px">The closest-approach search failed: ${esc(approachError)}. No distance is shown.</p>` : ''}
     ${approach ? `<p class="fine" style="margin-top:14px">Your two satellites come within <b>${approach.km.toLocaleString()} km</b> of each other on ${esc(fmtLocal(approach.at))}. That is the closest you get in the next three days, and it is a real number, computed from both orbits.</p>` : ''}
     <div class="compat-share"><button type="button" class="ghost" id="compat-copy">Copy our link</button></div>`;
   const link = `${location.origin}${location.pathname}#pair=${encodeURIComponent(a.date)},${encodeURIComponent(b.date)},${encodeURIComponent(a.name)},${encodeURIComponent(b.name)}`;
