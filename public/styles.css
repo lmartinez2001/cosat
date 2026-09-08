@@ -217,3 +217,60 @@ button { font: inherit; cursor: pointer; }
   .decay-grid { grid-template-columns: minmax(0,1fr); }
   .compat-row, .compat-pair { grid-template-columns: minmax(0,1fr); }
 }
+
+/* ---------- app shell: switchable views + a persistent tab bar ---------- */
+.views[hidden], .tabbar[hidden], .imminent[hidden] { display: none !important; }
+.views { padding-bottom: 96px; }
+.view { display: none; }
+.view.on { display: block; }
+.view:not(.report) { max-width: 720px; margin: 0 auto; padding: 74px 20px 40px; }
+.view:not(.report) > * { animation: rise .55s cubic-bezier(.2,.7,.2,1) both; }
+.view:not(.report) .ritual, .view:not(.report) .mortality, .view:not(.report) .compat { border-top: 0; padding-top: 0; }
+.view h2 { font-size: 11px; }
+.view-title { font-family: var(--serif); font-size: clamp(26px, 6vw, 40px); line-height: 1.05; margin: 0 0 6px; font-weight: 400; }
+.view-sub { font-size: 14px; color: var(--dim); margin: 0 0 26px; max-width: 46ch; }
+
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: grid; grid-template-columns: repeat(5, 1fr);
+  background: rgba(8,8,8,.86); backdrop-filter: blur(14px); border-top: 1px solid var(--line);
+  padding: 8px 4px calc(8px + env(safe-area-inset-bottom)); }
+.tabbar a { position: relative; display: grid; justify-items: center; gap: 4px; padding: 6px 2px; text-decoration: none; color: var(--dim); transition: color .2s; -webkit-tap-highlight-color: transparent; }
+.tabbar a svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.tabbar a svg .f { fill: currentColor; stroke: none; }
+.tabbar a .tl { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; }
+.tabbar a.on { color: var(--fg); }
+.tabbar a.on::before { content: ''; position: absolute; top: -9px; left: 50%; transform: translateX(-50%); width: 22px; height: 2px; background: var(--accent); }
+.tabbar a:active { color: var(--fg); }
+.tbadge { position: absolute; top: 0; left: 50%; margin-left: 4px; background: var(--accent); color: #050505; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .02em; padding: 1px 4px; border-radius: 999px; white-space: nowrap; }
+.tbadge.now { background: #ff4d4d; color: #fff; animation: pulse 1.1s ease-in-out infinite; }
+
+.imminent { position: fixed; left: 0; right: 0; bottom: calc(66px + env(safe-area-inset-bottom)); z-index: 41; background: var(--accent); color: #050505;
+  font-family: var(--mono); font-size: 12px; letter-spacing: .04em; text-align: center; padding: 9px 14px; cursor: pointer; }
+.imminent b { font-weight: 700; }
+
+@media (min-width: 760px) {
+  .tabbar { left: 50%; right: auto; transform: translateX(-50%); bottom: 20px; width: min(560px, 92vw); grid-template-columns: repeat(5, 1fr);
+    border: 1px solid var(--line); border-radius: 999px; padding: 8px 10px; box-shadow: 0 18px 50px rgba(0,0,0,.6); }
+  .tabbar a.on::before { top: -8px; }
+  .imminent { bottom: 96px; left: 50%; transform: translateX(-50%); right: auto; width: min(560px, 92vw); border-radius: 999px; }
+  .views { padding-bottom: 120px; }
+}
+@media (prefers-reduced-motion: reduce) { .tbadge.now { animation: none; } }
+
+/* ---------- once loaded, the landing page becomes a compact header ---------- */
+.hero-id { display: none; }
+body.app .hero { min-height: 0; height: 42vh; padding: 70px 20px 16px; align-content: end; }
+/* the header text sits over the globe, so give it something to sit on */
+body.app .hero::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 62%; pointer-events: none;
+  background: linear-gradient(180deg, rgba(5,5,5,0) 0%, rgba(5,5,5,.72) 45%, rgba(5,5,5,.94) 100%); }
+body.app .hero-live, body.app .hero-id { position: relative; z-index: 2; }
+body.app .wordmark .shorts-link { display: none; }
+body.app .hero-copy, body.app .birth-form { display: none; }
+body.app .hero.editing .birth-form { display: grid; }
+body.app .hero.editing { height: auto; min-height: 100vh; align-content: center; }
+body.app .hero-live { grid-column: 1; margin: 0 0 8px; }
+body.app .hero-id { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; position: relative; grid-column: 1; color: var(--dim); font-size: 11px; letter-spacing: .06em; }
+body.app .hero-id button { background: none; border: 1px solid var(--line); color: var(--dim); font: inherit; text-transform: uppercase; letter-spacing: .14em; padding: 5px 9px; }
+body.app .hero-id button:hover { border-color: var(--fg); color: var(--fg); }
+body.app #view-chart { padding-top: 0; }
+body.app .report { padding-top: 34px; }
+@media (min-width: 900px) { body.app .hero { grid-template-columns: 1fr; height: 40vh; padding: 78px 6vw 18px; } }

@@ -29,6 +29,7 @@
       <p class="lede">Planets are far and slow. Satellites are close, fast, and numerous. Which do you think is really running your life?</p>
     </div>
     <p class="hero-live mono dim" id="hero-live"></p>
+    <div class="hero-id mono" id="hero-id" hidden></div>
     <form id="birth-form" class="birth-form" autocomplete="off">
       <div class="field"><label for="name">Name <span class="dim">(optional)</span></label><input id="name" name="name" type="text" placeholder="you" maxlength="40"></div>
       <div class="row">
@@ -49,7 +50,8 @@
     </form>
   </section>
 
-  <section class="report" id="report" hidden>
+  <div class="views" id="views" hidden>
+  <section class="report view on" id="view-chart">
     <div class="report-head">
       <p class="eyebrow" id="rep-name">Your chart</p>
       <div class="bigthree">
@@ -86,44 +88,6 @@
     </div>
 
 
-    <div class="ritual" id="ritual">
-      <h2>Go outside</h2>
-      <p class="fine">Astrology cannot be checked. This can. Your satellite is a real object on a known orbit, and it will cross your sky at a time we can compute to the second. Sunlit satellite, dark sky, no telescope.</p>
-      <div class="guardian" id="guardian-box"></div>
-      <div class="pass-main" id="pass-main"></div>
-      <canvas id="pass-arc" aria-label="The path your satellite will take across your sky"></canvas>
-      <div class="pass-actions">
-        <button type="button" class="primary" id="add-cal">Put it in my calendar</button>
-        <button type="button" class="ghost" id="aim-btn">◎ Point my phone at it</button>
-        <button type="button" class="ghost" id="saw-it">I saw it</button>
-      </div>
-      <div class="aim" id="aim" hidden><div class="aim-dial"><canvas id="aim-canvas"></canvas></div><p class="aim-note mono" id="aim-note"></p></div>
-      <div class="logbook" id="logbook"></div>
-      <ul class="pass-list mono" id="pass-list"></ul>
-    </div>
-
-    <div class="mortality" id="mortality">
-      <h2>Memento mori</h2>
-      <div id="mortality-body"></div>
-    </div>
-
-    <div class="compat" id="compat">
-      <h2>Compatibility</h2>
-      <p class="fine">Astrological compatibility is invented. This one is geometry: two birthdays, two real satellites, and the actual angle between the planes they fly in.</p>
-      <form id="compat-form" autocomplete="off">
-        <div class="compat-row">
-          <div class="field"><label for="c-name-a">Name</label><input id="c-name-a" type="text" maxlength="24" placeholder="you"></div>
-          <div class="field"><label for="c-date-a">Born on</label><input id="c-date-a" type="date" required min="1957-10-04" max="2026-12-31"></div>
-        </div>
-        <div class="compat-row">
-          <div class="field"><label for="c-name-b">Their name</label><input id="c-name-b" type="text" maxlength="24" placeholder="them"></div>
-          <div class="field"><label for="c-date-b">Born on</label><input id="c-date-b" type="date" required min="1957-10-04" max="2026-12-31"></div>
-        </div>
-        <button type="submit" class="primary" id="compat-go">Compare our orbits</button>
-      </form>
-      <div id="compat-out"></div>
-    </div>
-
     <div class="transits">
       <div><h3>Rising over you</h3><ul id="rising" class="mono"></ul></div>
       <div><h3>Setting</h3><ul id="setting" class="mono"></ul></div>
@@ -141,7 +105,76 @@
       <p class="fine">CO—SAT is a parody. Satellites do not influence your life, except the ones that do (GPS, weather, your internet). Orbital elements © CelesTrak, used under their data policy: each dataset is fetched at most once every 3 hours, from a single caching server, with backoff on errors. All positions are computed on your device with SGP4 (satellite.js). Nothing about you leaves your browser.</p>
     </div>
   </section>
+
+  <section class="view" id="view-tonight">
+    <h1 class="view-title">Go outside.</h1>
+    <p class="view-sub">A real object on a known orbit will cross your sky at a time we can compute to the second. Sunlit satellite, dark sky, no telescope.</p>
+    <div class="ritual" id="ritual">
+      <div class="guardian" id="guardian-box"></div>
+      <div class="pass-main" id="pass-main"></div>
+      <canvas id="pass-arc" aria-label="The path your satellite will take across your sky"></canvas>
+      <div class="pass-actions">
+        <button type="button" class="primary" id="add-cal">Put it in my calendar</button>
+        <button type="button" class="ghost" id="aim-btn">◎ Point my phone at it</button>
+        <button type="button" class="ghost" id="saw-it">I saw it</button>
+      </div>
+      <div class="aim" id="aim" hidden><div class="aim-dial"><canvas id="aim-canvas"></canvas></div><p class="aim-note mono" id="aim-note"></p></div>
+      <div class="logbook" id="logbook"></div>
+      <ul class="pass-list mono" id="pass-list"></ul>
+    </div>
+
+  </section>
+
+  <section class="view" id="view-fate">
+    <h1 class="view-title">Everything up there is falling.</h1>
+    <p class="view-sub">Including yours. Measured from its own orbit, not modelled.</p>
+    <div class="mortality" id="mortality">
+      <div id="mortality-body"></div>
+    </div>
+
+  </section>
+
+  <section class="view" id="view-match">
+    <h1 class="view-title">Two birthdays, two orbits.</h1>
+    <p class="view-sub">Astrological compatibility is invented. This one is geometry: two real satellites and the actual angle between the planes they fly in.</p>
+    <div class="compat" id="compat">
+      <form id="compat-form" autocomplete="off">
+        <div class="compat-row">
+          <div class="field"><label for="c-name-a">Name</label><input id="c-name-a" type="text" maxlength="24" placeholder="you"></div>
+          <div class="field"><label for="c-date-a">Born on</label><input id="c-date-a" type="date" required min="1957-10-04" max="2026-12-31"></div>
+        </div>
+        <div class="compat-row">
+          <div class="field"><label for="c-name-b">Their name</label><input id="c-name-b" type="text" maxlength="24" placeholder="them"></div>
+          <div class="field"><label for="c-date-b">Born on</label><input id="c-date-b" type="date" required min="1957-10-04" max="2026-12-31"></div>
+        </div>
+        <button type="submit" class="primary" id="compat-go">Compare our orbits</button>
+      </form>
+      <div id="compat-out"></div>
+    </div>
+
+  </section>
+  </div>
 </main>
+
+<nav class="tabbar" id="tabbar" hidden aria-label="Sections">
+  <a href="#chart" data-view="chart" class="on">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1.4" class="f"/></svg>
+    <span class="tl">Chart</span></a>
+  <a href="#tonight" data-view="tonight">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 19a10 10 0 0 1 20 0"/><circle cx="16.5" cy="10" r="1.8" class="f"/></svg>
+    <span class="tl">Tonight</span><span class="tbadge" id="tab-badge" hidden></span></a>
+  <a href="#fate" data-view="fate">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4c9 1 15 7 16 16"/><path d="M20 20l-.4-5M20 20l-5 .4"/><circle cx="4" cy="4" r="1.6" class="f"/></svg>
+    <span class="tl">Fate</span></a>
+  <a href="#match" data-view="match">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="9.2" ry="4.4"/><ellipse cx="12" cy="12" rx="4.4" ry="9.2"/></svg>
+    <span class="tl">Match</span></a>
+  <a href="feed.html" data-view="shorts">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M10.5 9.2v5.6l4.6-2.8z" class="f"/></svg>
+    <span class="tl">Shorts</span></a>
+</nav>
+<div class="imminent" id="imminent" hidden></div>
+
 <script src="vendor/satellite.min.js"></script>
 <script type="module" src="app.js"></script>
 </body>

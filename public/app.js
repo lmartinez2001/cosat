@@ -44,19 +44,124 @@ globe.setObserver(S.observer.lat, S.observer.lon);
 const OWNER_LABEL = { US: 'the United States', CIS: 'Russia', PRC: 'China', FR: 'France', ESA: 'the European Space Agency', JPN: 'Japan', IND: 'India', UK: 'the United Kingdom', GER: 'Germany', CA: 'Canada', IT: 'Italy', SES: 'SES', ITSO: 'Intelsat', EUME: 'EUMETSAT', EUTE: 'Eutelsat', IRID: 'Iridium', GLOB: 'Globalstar', O3B: 'O3b', SKOR: 'South Korea', KOR: 'South Korea', ORB: 'Orbcomm', LUXE: 'Luxembourg', NOR: 'Norway', SPN: 'Spain', TBD: 'an undisclosed party' };
 const ownerShort = code => OWNER_LABEL[code] || code || 'an unknown operator';
 
-$('#birth-form').onsubmit = async e => {
-  e.preventDefault();
+$('#birth-form').onsubmit = e => { e.preventDefault(); readSky(false); };
+async function readSky(silent) {
   const f = { name: $('#name').value.trim(), bdate: $('#bdate').value, btime: $('#btime').value || '12:00', lat: +$('#lat').value, lon: +$('#lon').value };
   if (!f.bdate || isNaN(f.lat) || isNaN(f.lon)) return;
   localStorage.setItem('cosat-form', JSON.stringify(f));
   S.name = f.name; S.birth = { date: f.bdate, time: f.btime };
   if (f.lat !== S.observer.lat || f.lon !== S.observer.lon) { S.observer = { lat: f.lat, lon: f.lon }; globe.setObserver(f.lat, f.lon); S.worker?.postMessage({ type: 'observer', observer: S.observer }); S.fa = S.fb = null; }
-  $('#submit').disabled = true; $('#submit').textContent = 'Reading…';
+  if (!silent) { $('#submit').disabled = true; $('#submit').textContent = 'Reading…'; }
   try { S.natal = await fetchNatal(f.bdate); } catch { S.natal = null; }
   S.lastReportBuild = 0; S.hi.rising = null;
-  const show = () => { if (!S.cur) return setTimeout(show, 200); updateLive(true); $('#report').hidden = false; prefillCompat(S.birth, S.name); buildRitual(S.birth, S.natal); if (!S.reportShown) { S.reportShown = true; pollIss(true); } S.reportShown = true; $('#submit').disabled = false; $('#submit').textContent = 'Read my sky again'; setTimeout(() => $('#report').scrollIntoView({ behavior: 'smooth' }), 50); };
+  const show = () => {
+    if (!S.cur || !S.stats) return setTimeout(show, 150);   // wait for the first propagation tick
+    updateLive(true);
+    $('#views').hidden = false; $('#tabbar').hidden = false;
+    prefillCompat(S.birth, S.name); buildRitual(S.birth, S.natal);
+    if (!S.reportShown) { S.reportShown = true; pollIss(true); }
+    $('#submit').disabled = false; $('#submit').textContent = 'Read my sky again';
+    if (!S.shellReady) {
+      S.shellReady = true; enterAppMode(); wireTabs();
+      showView(openingView(), { remember: false });
+      setTimeout(() => { const v = routeFromHash(); if (v && v !== currentView) showView(v, { remember: false }); }, 0);
+    }
+    renderIdentity();
+    if (!silent) setTimeout(() => $('#views').scrollIntoView({ behavior: 'smooth' }), 50);
+  };
   show();
-};
+}
+
+
+// ---------- app shell: four views, one tab bar, no scrolling to find things ----------
+const VIEWS = ['chart', 'tonight', 'fate', 'match'];
+let currentView = 'chart';
+function showView(name, { remember = true } = {}) {
+  if (!VIEWS.includes(name)) name = 'chart';
+  currentView = name;
+  for (const v of document.querySelectorAll('.view')) v.classList.toggle('on', v.id === 'view-' + name);
+  for (const a of document.querySelectorAll('.tabbar a[data-view]')) a.classList.toggle('on', a.dataset.view === name);
+  window.scrollTo({ top: 0, behavior: 'instant' });
+  if (remember) { try { localStorage.setItem('cosat-tab', name); } catch { } }
+  if (!/^#pair=/.test(location.hash)) history.replaceState(null, '', '#' + name);
+  // canvases inside a hidden view have no width, so redraw once it is actually on screen
+  if (name === 'tonight') window.dispatchEvent(new Event('cosat:tonight'));
+  if (name === 'fate') window.dispatchEvent(new Event('cosat:fate'));
+}
+// The landing page has done its job once there is a chart: fold it into a header at the
+// top of the Chart view so every tab opens straight onto its own content.
+function enterAppMode() {
+  document.body.classList.add('app');
+  const hero = $('#hero');
+  $('#view-chart').prepend(hero);
+  globe.setCompact(true);
+  $('#hero-id').addEventListener('click', e => {
+    if (!e.target.closest('button')) return;
+    hero.classList.toggle('editing');
+    if (hero.classList.contains('editing')) hero.scrollIntoView({ behavior: 'smooth' });
+    globe.resize();
+  });
+}
+function renderIdentity() {
+  const box = $('#hero-id'); if (!box) return;
+  const city = PRESETS.reduce((best, p) => { const d = Math.hypot(p[1] - S.observer.lat, p[2] - S.observer.lon); return d < best.d ? { name: p[0], d } : best; }, { name: null, d: 9 });
+  const where = city.d < 1.2 ? city.name : `${S.observer.lat.toFixed(2)}°, ${S.observer.lon.toFixed(2)}°`;
+  box.hidden = false;
+  box.innerHTML = `<span>${S.name ? esc(S.name) + ' · ' : ''}born ${esc(S.birth.date)} · reading the sky over ${esc(where)}</span><button type="button">edit</button>`;
+}
+function wireTabs() {
+  for (const a of document.querySelectorAll('.tabbar a[data-view]')) {
+    if (a.dataset.view === 'shorts') continue;
+    a.addEventListener('click', e => { e.preventDefault(); showView(a.dataset.view); });
+  }
+  // swipe left/right between views, without hijacking a vertical scroll
+  const stage = $('#views'); let sx = 0, sy = 0, tracking = false;
+  stage.addEventListener('touchstart', e => { if (e.touches.length !== 1) return; sx = e.touches[0].clientX; sy = e.touches[0].clientY; tracking = true; }, { passive: true });
+  stage.addEventListener('touchend', e => {
+    if (!tracking) return; tracking = false;
+    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
+    const i = VIEWS.indexOf(currentView) + (dx < 0 ? 1 : -1);
+    if (i >= 0 && i < VIEWS.length) showView(VIEWS[i]);
+  }, { passive: true });
+  window.addEventListener('keydown', e => {
+    if (e.target.matches('input, select, textarea') || $('#views').hidden) return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      const i = VIEWS.indexOf(currentView) + (e.key === 'ArrowRight' ? 1 : -1);
+      if (i >= 0 && i < VIEWS.length) showView(VIEWS[i]);
+    }
+  });
+  $('#imminent').addEventListener('click', () => showView('tonight'));
+}
+// A hash change is a same-document navigation, so shared links and the back button
+// have to be routed by hand. The hash can also arrive while the app is still loading,
+// so it is remembered and applied once the shell exists.
+let pendingView = null;
+function routeFromHash() {
+  if (/^#pair=/.test(location.hash)) return 'match';
+  const m = /^#(chart|tonight|fate|match)\b/.exec(location.hash);
+  return m ? m[1] : null;
+}
+window.addEventListener('hashchange', () => {
+  const v = routeFromHash(); if (!v) return;
+  if ($('#views').hidden) { pendingView = v; return; }
+  if (v !== currentView) showView(v);
+});
+// Which view should open? A pass in the next couple of hours beats everything else.
+function openingView() {
+  const fromHash = pendingView || routeFromHash();
+  if (fromHash) return fromHash;
+  const eta = window.__nextPassIn;
+  if (eta != null && eta > -600e3 && eta < 2 * 3600e3) return 'tonight';
+  try { return localStorage.getItem('cosat-tab') || 'chart'; } catch { return 'chart'; }
+}
+
+window.addEventListener('cosat:tonight', () => window.dispatchEvent(new Event('resize')));
+document.addEventListener('click', e => {
+  const a = e.target.closest('a[href="#ritual"], a[href="#tonight"]');
+  if (!a || $('#views').hidden) return;
+  e.preventDefault(); showView('tonight');
+});
 
 // ---------- catalog ----------
 async function loadCatalog(attempt = 0) {
@@ -75,7 +180,10 @@ async function loadCatalog(attempt = 0) {
   $('#wheel-legend').innerHTML = CATEGORIES.map(c => `<span style="--c:${DOMAIN_COLORS[c.key]}">${c.ruler}</span>`).join('') + `<span style="--c:${DOMAIN_COLORS.shadow}">military</span>`;
   startWorker();
   initFeatures({ S, prettyName, dirName, ownerShort, fetchNatal, STATIC });
-  if (applyCompatLink()) $('#compat').scrollIntoView({ behavior: 'smooth' });
+  // Returning visitor: the app opens already loaded rather than showing a form again.
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('cosat-form') || 'null'); } catch { return null; } })();
+  if (saved && saved.bdate) readSky(true);
+  applyCompatLink();
   $('#form-note').textContent = `${S.N.toLocaleString()} objects loaded. Positions are computed on this device every second; nothing is polled.`;
   $('#submit').disabled = false;
   refreshStatus();
@@ -337,7 +445,7 @@ async function refreshStatus() {
   try {
     const st = await (await fetch(URLS.status)).json(); if (STATIC) st.now = Date.now(); S.status = st;
     const ages = Object.values(st.groups).filter(g => g.fetchedAt).map(g => st.now - g.fetchedAt); const oldest = Math.max(...ages) / 3600000;
-    $('#datastate').textContent = `${st.catalog.count.toLocaleString()} objects · elements ≤ ${oldest.toFixed(1)} h old`;
+    $('#datastate').textContent = `${(st.catalog.count || S.N).toLocaleString()} objects · elements ≤ ${oldest.toFixed(1)} h old`;
     $('#livedot').classList.toggle('stale', oldest > 6);
     const rows = Object.entries(st.groups).map(([id, g]) => `<tr><td>${esc(g.label)}</td><td>${g.count.toLocaleString()}</td><td>${g.fetchedAt ? ago(st.now - g.fetchedAt) + ' ago' : '—'}</td><td>${g.nextRefreshAt ? 'in ' + ago(g.nextRefreshAt - st.now) : 'pending'}</td><td>${g.lastError ? esc(g.lastError) : g.cooldownUntil ? 'backing off' : 'ok'}</td></tr>`).join('');
     $('#method-body').innerHTML = `<table><tr><th>CelesTrak group</th><th>objects</th><th>fetched</th><th>next fetch</th><th>state</th></tr>${rows}<tr><td>SATCAT (launch dates)</td><td>${(st.satcat.bytes / 1e6).toFixed(1)} MB</td><td>${st.satcat.fetchedAt ? ago(st.now - st.satcat.fetchedAt) + ' ago' : '—'}</td><td>${st.satcat.nextRefreshAt ? 'in ' + ago(st.satcat.nextRefreshAt - st.now) : 'pending'}</td><td>${st.satcat.lastError ? esc(st.satcat.lastError) : 'ok'}</td></tr></table><p>Upstream requests are serialized with ${st.spacingMs / 1000} s spacing, cached on disk for ${st.gpTtlMs / 3600000} h (elements) / ${st.satcatTtlMs / 3600000} h (SATCAT), served with ETag + max-age so reloads cost nothing, and exponentially backed off on any error. ISS telemetry is fetched at most once per 30 s server-side and once per minute per open report.</p>${STATIC ? '<p>This copy is hosted statically: a scheduled GitHub Action does the fetching every 3 hours and publishes the files above; your browser only reads them (plus one ISS telemetry request per minute).</p>' : ''}`;

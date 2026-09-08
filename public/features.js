@@ -39,6 +39,9 @@ export function initFeatures(context) {
   $('#saw-it').addEventListener('click', () => logSighting('manual'));
   $('#aim-btn').addEventListener('click', toggleAiming);
   $('#compat-form').addEventListener('submit', onCompatSubmit);
+  window.addEventListener('cosat:tonight', () => drawArc());
+  window.addEventListener('cosat:fate', () => buildMortality());
+  window.addEventListener('resize', () => { if (state.nextPass) drawArc(); });
   window.addEventListener('hashchange', applyCompatLink);
 }
 
@@ -146,9 +149,10 @@ async function requestPasses() {
   if (!res || !res.passes.length) { res = await ask('passes', { obj: g, observer, days: 3, minEl: 10, needVisible: false, limit: 6 }).catch(() => null); visibleOnly = false; }
   state.passes = res ? res.passes : []; state.visibleOnly = visibleOnly;
   state.nextPass = state.passes[0] || null;
-  renderPass(); drawArc(); renderPassList();
+  renderPass(); try { drawArc(); } catch { } renderPassList();
   if (state.timer) clearInterval(state.timer);
   state.timer = setInterval(tickCountdown, 1000);
+  tickCountdown();
 }
 
 function brightnessHint(g, pass) {
@@ -190,20 +194,44 @@ function renderPass() {
   t.textContent = `↓ ${ctx.prettyName(g.n)} crosses your sky ${fmtLocal(p.rise)} — go outside`;
 }
 function tickCountdown() {
-  const el = $('#pass-countdown'); if (!el || !state.nextPass) return;
-  let s = Math.round((state.nextPass.rise - Date.now()) / 1000);
+  const el = $('#pass-countdown');
+  if (!state.nextPass) { setBadge(null); return; }
+  const ms = state.nextPass.rise - Date.now();
+  window.__nextPassIn = ms;
+  let s = Math.round(ms / 1000);
   if (s < -600) { requestPasses(); return; }                    // pass is over: find the next one
-  if (s < 0) { el.textContent = 'HAPPENING NOW · LOOK UP'; return; }
-  const d = Math.floor(s / 86400); s -= d * 86400;
-  const h = Math.floor(s / 3600); s -= h * 3600;
-  const m = Math.floor(s / 60), sec = s - m * 60;
-  el.textContent = `IN ${d ? d + 'd ' : ''}${pad(h)}:${pad(m)}:${pad(sec)}`;
+  if (s < 0) { if (el) el.textContent = 'HAPPENING NOW · LOOK UP'; setBadge(ms); return; }
+  const d = Math.floor(s / 86400); let r = s - d * 86400;
+  const h = Math.floor(r / 3600); r -= h * 3600;
+  const m = Math.floor(r / 60), sec = r - m * 60;
+  if (el) el.textContent = `IN ${d ? d + 'd ' : ''}${pad(h)}:${pad(m)}:${pad(sec)}`;
+  setBadge(ms);
+}
+// The tab badge is the whole retention idea in one glyph: a real countdown to a real
+// event, visible from every screen, that nobody wrote by hand.
+function setBadge(ms) {
+  const badge = $('#tab-badge'), banner = $('#imminent');
+  if (!badge) return;
+  if (ms == null) { badge.hidden = true; if (banner) banner.hidden = true; return; }
+  const g = guardianObj();
+  const mins = ms / 60000;
+  badge.hidden = false;
+  badge.classList.toggle('now', ms < 0);
+  badge.textContent = ms < 0 ? 'NOW' : mins < 60 ? Math.max(1, Math.round(mins)) + 'm' : mins < 1440 ? Math.round(mins / 60) + 'h' : Math.round(mins / 1440) + 'd';
+  if (banner) {
+    const soon = ms < 30 * 60000;
+    banner.hidden = !soon;
+    if (soon) banner.innerHTML = ms < 0
+      ? `<b>${esc(ctx.prettyName(g.n))} is crossing your sky now.</b> Look ${esc(ctx.dirName(state.nextPass.azPeak))}, ${state.nextPass.maxEl}° up.`
+      : `<b>${esc(ctx.prettyName(g.n))} rises in ${Math.max(1, Math.round(mins))} min.</b> Look ${esc(ctx.dirName(state.nextPass.azPeak))}. Tap to open.`;
+  }
 }
 
 // A profile of the pass: elevation against compass direction, the way you would see it.
 function drawArc() {
   const c = $('#pass-arc'); if (!c || !state.nextPass) return;
   const dpr = Math.min(2, devicePixelRatio || 1), w = c.clientWidth, h = Math.round(w / 2);
+  if (w < 40) return;                       // the view is not on screen yet
   c.width = w * dpr; c.height = h * dpr;
   const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, w, h);
   const pad = 26, gy = h - 20, R = Math.min((w - pad * 2) / 2, gy - 14);
@@ -326,6 +354,7 @@ function onOrientation(ev) {
 }
 function drawAim(aim, target, gap) {
   const c = $('#aim-canvas'); const dpr = Math.min(2, devicePixelRatio || 1), w = c.clientWidth;
+  if (w < 40) return;
   c.width = c.height = w * dpr; const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, w, w);
   const cx = w / 2, cy = w / 2, R = w * 0.44;
   const place = (az, el) => { const r = R * (90 - Math.max(-10, el)) / 100; const a = az * D2R; return [cx - r * Math.sin(a), cy - r * Math.cos(a)]; };
@@ -414,6 +443,7 @@ function decayEstimate(g, rec) {
 function drawDecayChart(g, rec, altNow, decay) {
   const c = $('#decay-chart'); if (!c) return;
   const dpr = Math.min(2, devicePixelRatio || 1), w = c.clientWidth, h = 110;
+  if (w < 40) return;
   c.width = w * dpr; c.height = h * dpr; const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, w, h);
   const padL = 8, padR = 8, top = 14, bot = h - 20;
   const start = rec ? rec.f : Date.now() - 86400e3, end = Date.now();

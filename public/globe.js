@@ -23,13 +23,16 @@ export class Globe {
     this.c.width = Math.round(w * dpr); this.c.height = Math.round(h * dpr); this.dpr = dpr; this.w = w; this.h = h;
     const narrow = w < 900; // matches the CSS breakpoint where the hero stacks
     const vh = Math.min(h, window.innerHeight || h); // stacked hero grows with content; size the globe to the viewport
-    this.cx = narrow ? w * 0.5 : w * 0.72; this.cy = narrow ? vh * 0.25 : h * 0.5;
-    this.R = Math.max(40, narrow ? Math.min(w * 0.34, vh * 0.19) : Math.min(w * 0.21, h * 0.31));
+    if (this.compact) { this.cx = narrow ? w * 0.5 : w * 0.74; this.cy = h * 0.46; this.R = Math.max(40, Math.min(w * (narrow ? 0.34 : 0.2), h * 0.42)); }
+    else { this.cx = narrow ? w * 0.5 : w * 0.72; this.cy = narrow ? vh * 0.25 : h * 0.5;
+      this.R = Math.max(40, narrow ? Math.min(w * 0.34, vh * 0.19) : Math.min(w * 0.21, h * 0.31)); }
     this.stars = []; let s = 12345; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
     for (let i = 0; i < 420; i++) this.stars.push([rnd() * w, rnd() * h, 0.3 + rnd() * 1.1, rnd() * 6.28]);
     this.shadeKey = '';
   }
   setObserver(lat, lon) { this.lat0 = lat; this.lon0 = lon; this.spin = 0; this.tilt = 0; this.shadeKey = ''; }
+  // in app mode the hero is a short banner, so the globe centres itself in whatever box it gets
+  setCompact(on) { this.compact = on; this.resize(); }
   setData(cur, N, domainIdx, colors) {
     this.cur = cur; this.N = N; this.domainIdx = domainIdx; this.colors = colors;
     // Per-object scratch reused every frame: the altitude scale (a log, refreshed once

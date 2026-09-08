@@ -12,7 +12,7 @@
 </head>
 <body>
 <div class="stage">
-  <a class="back" href="./">← CO—SAT</a>
+  
   <div class="feed" id="feed" tabindex="0" aria-label="Shorts feed">
     <section class="short loading" id="loading">
       <div class="text"><div class="kicker">Loading</div><h1 class="title">Tuning in<span class="blink">…</span></h1><p class="body" id="load-note">loading orbital elements…</p><div class="reality"><span class="lbl">What this is</span>Real videos about UFOs and satellites, pulled live from YouTube, Wikimedia Commons and the Internet Archive. Under each one: what is actually above your head right now.</div></div>
@@ -20,6 +20,13 @@
   </div>
   <div class="nav" aria-hidden="true"><button id="prev" title="Previous (↑ / k)">↑</button><button id="next" title="Next (↓ / j)">↓</button></div>
   <div class="hint mono" id="hint">scroll · ↑↓ · swipe</div>
+<nav class="tabbar" aria-label="Sections">
+  <a href="index.html#chart"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1.4" class="f"/></svg><span class="tl">Chart</span></a>
+  <a href="index.html#tonight"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 19a10 10 0 0 1 20 0"/><circle cx="16.5" cy="10" r="1.8" class="f"/></svg><span class="tl">Tonight</span></a>
+  <a href="index.html#fate"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4c9 1 15 7 16 16"/><path d="M20 20l-.4-5M20 20l-5 .4"/><circle cx="4" cy="4" r="1.6" class="f"/></svg><span class="tl">Fate</span></a>
+  <a href="index.html#match"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="9.2" ry="4.4"/><ellipse cx="12" cy="12" rx="4.4" ry="9.2"/></svg><span class="tl">Match</span></a>
+  <a href="#" class="on" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M10.5 9.2v5.6l4.6-2.8z" class="f"/></svg><span class="tl">Shorts</span></a>
+</nav>
 </div>
 <script src="vendor/satellite.min.js"></script>
 <script type="module" src="feed.js"></script>
