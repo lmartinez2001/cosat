@@ -278,3 +278,12 @@ body.app .report { padding-top: 34px; }
 /* an honest failure, never a plausible-looking substitute */
 .failed { border-left: 2px solid #ff7b7b; padding: 10px 0 10px 14px; font-size: 14px; line-height: 1.5; color: #d8d5cd; }
 .failed .f-lbl { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: #ff7b7b; margin-bottom: 4px; }
+
+/* a view that cannot work yet explains why, rather than sitting empty */
+.needs-chart { border: 1px solid var(--line); padding: 22px; display: grid; gap: 16px; justify-items: start; }
+.needs-chart p { margin: 0; font-size: 15px; color: var(--dim); max-width: 44ch; }
+body.no-chart .view .ritual, body.no-chart .view .mortality { display: none; }
+body.no-chart #view-chart { padding: 0; }
+body.no-chart #view-chart > *:not(#hero) { display: none; }   /* no chart yet: the landing page is the whole view */
+body.no-chart .hero { min-height: 100vh; }
+body:not(.no-chart) .needs-chart { display: none !important; }

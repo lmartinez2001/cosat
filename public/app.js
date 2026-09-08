@@ -62,16 +62,13 @@ async function readSky(silent) {
   const show = () => {
     if (!S.cur || !S.stats) return setTimeout(show, 150);   // wait for the first propagation tick
     updateLive(true);
-    $('#views').hidden = false; $('#tabbar').hidden = false;
+    initShell();
     prefillCompat(S.birth, S.name); buildRitual(S.birth, S.natal);
-    if (!S.reportShown) { S.reportShown = true; pollIss(true); }
+    const first = !S.reportShown;
+    if (first) { S.reportShown = true; pollIss(true); enterAppMode(); }
     $('#submit').disabled = false; $('#submit').textContent = 'Read my sky again';
-    if (!S.shellReady) {
-      S.shellReady = true; enterAppMode(); wireTabs();
-      showView(openingView(), { remember: false });
-      setTimeout(() => { const v = routeFromHash(); if (v && v !== currentView) showView(v, { remember: false }); }, 0);
-    }
     renderIdentity();
+    if (first && !silent) showView('chart', { remember: false });
     if (!silent) setTimeout(() => $('#views').scrollIntoView({ behavior: 'smooth' }), 50);
   };
   show();
@@ -85,6 +82,9 @@ function showView(name, { remember = true } = {}) {
   if (!VIEWS.includes(name)) name = 'chart';
   currentView = name;
   for (const v of document.querySelectorAll('.view')) v.classList.toggle('on', v.id === 'view-' + name);
+  // Tonight and Fate are personal; without a birthday there is nothing honest to show.
+  const needsChart = !S.reportShown && (name === 'tonight' || name === 'fate');
+  for (const p of document.querySelectorAll('.needs-chart')) p.hidden = !needsChart || !p.closest('#view-' + name);
   for (const a of document.querySelectorAll('.tabbar a[data-view]')) a.classList.toggle('on', a.dataset.view === name);
   window.scrollTo({ top: 0, behavior: 'instant' });
   if (remember) { try { localStorage.setItem('cosat-tab', name); } catch { } }
@@ -93,12 +93,25 @@ function showView(name, { remember = true } = {}) {
   if (name === 'tonight') window.dispatchEvent(new Event('cosat:tonight'));
   if (name === 'fate') window.dispatchEvent(new Event('cosat:fate'));
 }
-// The landing page has done its job once there is a chart: fold it into a header at the
-// top of the Chart view so every tab opens straight onto its own content.
+// The tab bar appears as soon as the catalogue is loaded, so the app is recognisable and
+// navigable before anyone types a birthday. Views that genuinely need one say so.
+function initShell() {
+  if (S.shellReady) return;
+  S.shellReady = true;
+  document.body.classList.add('no-chart');
+  $('#view-chart').prepend($('#hero'));          // the landing page IS the chart view, full size for now
+  $('#views').hidden = false; $('#tabbar').hidden = false;
+  for (const b of document.querySelectorAll('.go-chart')) b.addEventListener('click', () => { showView('chart'); $('#hero').classList.add('editing'); $('#bdate').focus({ preventScroll: true }); });
+  wireTabs();
+  showView(openingView(), { remember: false });
+  setTimeout(() => { const v = routeFromHash(); if (v && v !== currentView) showView(v, { remember: false }); }, 0);
+}
+// Once a chart exists the landing page folds into a compact header at the top of Chart.
 function enterAppMode() {
+  document.body.classList.remove('no-chart');
   document.body.classList.add('app');
   const hero = $('#hero');
-  $('#view-chart').prepend(hero);
+  hero.classList.remove('editing');
   globe.setCompact(true);
   $('#hero-id').addEventListener('click', e => {
     if (!e.target.closest('button')) return;
@@ -186,10 +199,11 @@ async function loadCatalog(attempt = 0) {
   startWorker();
   initFeatures({ S, prettyName, dirName, ownerShort, fetchNatal, STATIC });
   // Returning visitor: the app opens already loaded rather than showing a form again.
+  initShell();
   const saved = (() => { try { return JSON.parse(localStorage.getItem('cosat-form') || 'null'); } catch { return null; } })();
   if (saved && saved.bdate) readSky(true);
   applyCompatLink();
-  $('#form-note').textContent = `${S.N.toLocaleString()} objects loaded. Positions are computed on this device every second; nothing is polled.`;
+  $('#form-note').textContent = `${S.N.toLocaleString()} objects loaded. Positions are computed on this device every second; nothing is polled. Build ${buildId()}.`;
   $('#submit').disabled = false;
   refreshStatus();
 }
@@ -398,7 +412,6 @@ function renderReport(r, nc, el) {
   // natal
   if (S.natalError) {
     $('#natal-body').innerHTML = `<div class="failed"><span class="f-lbl">Could not load</span>The launch records for your birthday did not load: ${esc(S.natalError)}. Nothing is being shown in their place. Reload to try again.</div>`;
-    buildMortality();
     return;
   }
   const objs = nc.list || [];
