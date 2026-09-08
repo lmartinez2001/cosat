@@ -14,7 +14,10 @@ const PRESETS = [['Paris', 48.8566, 2.3522], ['London', 51.5072, -0.1276], ['New
 const TZ_GUESS = { 'Europe/Paris': 'Paris', 'Europe/London': 'London', 'America/New_York': 'New York', 'America/Los_Angeles': 'Los Angeles', 'America/Sao_Paulo': 'São Paulo', 'America/Mexico_City': 'Mexico City', 'Africa/Lagos': 'Lagos', 'Africa/Nairobi': 'Nairobi', 'Africa/Cairo': 'Cairo', 'Europe/Berlin': 'Berlin', 'Europe/Madrid': 'Madrid', 'Atlantic/Reykjavik': 'Reykjavik', 'Europe/Moscow': 'Moscow', 'Asia/Kolkata': 'Mumbai', 'Asia/Singapore': 'Singapore', 'Asia/Tokyo': 'Tokyo', 'Asia/Seoul': 'Seoul', 'Australia/Sydney': 'Sydney', 'Pacific/Auckland': 'Auckland', 'Pacific/Honolulu': 'Honolulu' };
 
 // Static mode (GitHub Pages): no /api, data comes from files written by scripts/build-static.js.
-const STATIC = await fetch('api/status', { method: 'HEAD', cache: 'no-store' }).then(r => !r.ok).catch(() => true);
+// Published builds carry a content hash in a meta tag; the dev server serves public/
+// without one. That tells us which data source to use with no probe request and no
+// spurious 404 in the console.
+const STATIC = !!document.querySelector('meta[name="cosat-build"]');
 const URLS = STATIC
   ? { catalog: 'data/catalog.json', status: 'data/status.json', iss: 'https://api.wheretheiss.at/v1/satellites/25544' }
   : { catalog: 'api/catalog', status: 'api/status', iss: 'api/iss' };

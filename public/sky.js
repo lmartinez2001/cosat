@@ -12,7 +12,8 @@ export function guessObserver() {
   return { lat: p[1], lon: p[2], name: '', bdate: null, city };
 }
 
-export async function detectStatic() { return fetch('api/status', { method: 'HEAD', cache: 'no-store' }).then(r => !r.ok).catch(() => true); }
+// Published builds carry a content hash in a meta tag; the dev server does not.
+export async function detectStatic() { return !!document.querySelector('meta[name="cosat-build"]'); }
 
 export async function loadSky({ observer, onTick, onProgress }) {
   const STATIC = await detectStatic();
