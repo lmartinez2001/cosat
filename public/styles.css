@@ -5,6 +5,7 @@
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { background: var(--bg); color: var(--fg); scroll-behavior: smooth; }
 main { overflow-x: hidden; }
 body { margin: 0; font-family: var(--sans); font-weight: 300; line-height: 1.5; -webkit-font-smoothing: antialiased; }
@@ -219,7 +220,6 @@ button { font: inherit; cursor: pointer; }
 }
 
 /* ---------- app shell: switchable views + a persistent tab bar ---------- */
-.views[hidden], .tabbar[hidden], .imminent[hidden] { display: none !important; }
 .views { padding-bottom: 96px; }
 .view { display: none; }
 .view.on { display: block; }

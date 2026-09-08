@@ -1,5 +1,6 @@
 :root { --tabh: 62px; --bg: #000; --fg: #ECEAE4; --dim: #8a877f; --line: #2a2926; --accent: #ffd166; --red: #ff4d4d; --serif: 'Instrument Serif', Georgia, serif; --sans: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; --mono: 'JetBrains Mono', ui-monospace, Menlo, monospace; --h: calc(100dvh - var(--tabh)); --w: 100vw; }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: var(--sans); font-weight: 300; overflow: hidden; -webkit-font-smoothing: antialiased; }
 .mono { font-family: var(--mono); font-size: 12px; }
 .stage { position: relative; height: calc(100dvh - var(--tabh)); display: flex; align-items: center; justify-content: center; }
